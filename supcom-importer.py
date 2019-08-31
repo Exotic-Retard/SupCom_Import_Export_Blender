@@ -8,6 +8,7 @@
 #   0.2.0   06/06/10   - Added SCA (Animation) support
 #   0.3.0   06/07/02   - Alpha release
 #   0.4.0   2014-07-13 - Adapted to Blender 2.71
+#   0.5.0   2019-08-29 - Adapted to Blender 2.80
 #
 # Todo
 #   - Material/uv map 2
@@ -19,11 +20,11 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Importer",
+    "name": "Supcom Importer 0.5.0",
     "author": "dan & Brent & Oygron",
-    "version": (0,4,0),
-    "blender": (2, 71, 0),
-    "location": "File -> Import",
+    "version": (0,5,0),
+    "blender": (2, 80, 0),
+    "location": "File > Import-Export",
     "description": "Imports Supcom files",
     "warning": "",
     "wiki_url": "http://forums.gaspowered.com/"
@@ -395,10 +396,10 @@ class scm_mesh :
 
             # the bone matrix relative to the parent.
             if (bone.parent != 0):
-                mrel = (bone.rel_mat) * Matrix(bone.parent.rel_mat).inverted() #* xy_to_xz_transform
+                mrel = (bone.rel_mat) @ Matrix(bone.parent.rel_mat).inverted() #* xy_to_xz_transform
                 bone.rel_matrix_inv = Matrix(mrel).inverted()
             else:
-                mrel = bone.rel_mat * xy_to_xz_transform  #there is no parent
+                mrel = bone.rel_mat @ xy_to_xz_transform  #there is no parent
                 bone.rel_matrix_inv = Matrix(mrel).inverted()
 
 
@@ -577,7 +578,7 @@ class sca_anim :
         if (parent_index == -1) :
             # for the root bone, this is already the absolution pos/rot, but,
             # the root bone should be rotated into the blender coordinates
-            bone.rel_matrix = pose_rel_matrix * xy_to_xz_transform
+            bone.rel_matrix = pose_rel_matrix @ xy_to_xz_transform
 
             #testmat =(bone.rel_mat) * Matrix(bone.parent.rel_mat).invert()
 
@@ -738,6 +739,7 @@ def read_scm() :
     #bpy.ops.object.mode_set(mode='OBJECT')
     #scene = Blender.Scene.GetCurrent()
     scene = bpy.context.scene
+    layer = bpy.context.view_layer
     mesh = scm_mesh()
 
     if (mesh.load(scm_filepath[0]) == None):
@@ -756,10 +758,12 @@ def read_scm() :
 
     armObj = bpy.data.objects.new(armature_name, armData)
 
-    scene.objects.link(armObj)
-    scene.objects.active = armObj
-    armObj.select = True
-    armObj.show_x_ray = True
+    scene.collection.objects.link(armObj)
+    layer.objects.active = armObj
+    #if not armObj.select_get():
+    armObj.select_set(True)
+    #armObj.select = True
+    #armObj.show_x_ray = True #what does this do?
 
     bpy.ops.object.mode_set(mode='EDIT')
 
@@ -775,10 +779,10 @@ def read_scm() :
             blender_bone.parent = armData.edit_bones[bone.parent.name]
 
 
-        t_matrix = bone.rel_mat * xy_to_xz_transform
+        t_matrix = bone.rel_mat @ xy_to_xz_transform
         loc,rot,sca = t_matrix.transposed().decompose()
         blender_bone.head = loc
-        blender_bone.tail = (rot.to_matrix() * Vector((0,1,0))) + blender_bone.head
+        blender_bone.tail = (rot.to_matrix() @ Vector((0,1,0))) + blender_bone.head
         blender_bone.matrix = t_matrix.transposed()
 
 
@@ -792,24 +796,48 @@ def read_scm() :
     vertlist = []
     for vert in mesh.vertices:
         #ProgBarLSCM.do()
-        vertlist.append(Vector(vert.position)*xy_to_xz_transform)
+        vertlist.append(Vector(vert.position)@xy_to_xz_transform)
 
-
+    meshData.calc_loop_triangles()
+    
     meshData.vertices.add(len(vertlist))
-    meshData.tessfaces.add(len(mesh.faces))
+    #meshData.loop_triangles.add(len(mesh.faces))
+    meshData.polygons.add(len(mesh.faces))
     meshData.vertices.foreach_set("co", unpack_list(vertlist))
-    meshData.tessfaces.foreach_set("vertices_raw", unpack_list( mesh.faces))
+    
+    faces_loop_start = []
+    lidx = 0
+    for f in mesh.faces:
+        face_vert_loc_indices = f[0]
+        #nbr_vidx = len(face_vert_loc_indices)
+        nbr_vidx = 3
+        faces_loop_start.append(lidx)
+        lidx += nbr_vidx
+    
+    
+    n = len(vertlist)
+    num_polys = len(mesh.faces)
+    meshData.loops.add(num_polys * 3)
+    meshData.polygons.foreach_set("loop_start", faces_loop_start)
+    meshData.polygons.foreach_set("loop_total", (3,) * num_polys)
+    
+    fv = [3 * i + j for i in range(n // 3) for j in (1, 0, 2)]
+    
+    #meshData.loops.foreach_set("vertex_index", unpack_list(vertlist))
+    #meshData.loop_triangles.foreach_set("vertices_raw", unpack_list( mesh.faces)) #what does this do?
+    meshData.polygons.foreach_set("vertices", fv)
 
 
-    print(len(meshData.tessfaces))
+    print(len(meshData.loop_triangles))
 
 
-    meshData.uv_textures.new(name='UVMap')
+    #meshData.uv_textures.new(name='UVMap')
+    meshData.uv_layers.new(name='UVMap')
 
 
-    for uv in meshData.tessface_uv_textures: # uv texture
+    for uv in meshData.uv_layers: # uv texture
         print(uv)
-        for face in meshData.tessfaces:# face, uv
+        for face in meshData.loop_triangles:# face, uv
             uv1 = mesh.vertices[mesh.faces[face.index][0]].uv1
             uv.data[face.index].uv1 = Vector((uv1[0], 1.0-uv1[1]))
             uv1 = mesh.vertices[mesh.faces[face.index][1]].uv1
@@ -818,15 +846,17 @@ def read_scm() :
             uv.data[face.index].uv3 = Vector((uv1[0], 1.0-uv1[1]))
 
     mesh_obj = bpy.data.objects.new('Mesh', meshData)
-    scene.objects.link(mesh_obj)
-    scene.objects.active = mesh_obj
-    mesh_obj.select = True
-
+    scene.collection.objects.link(mesh_obj)
+    layer.objects.active = mesh_obj
+    mesh_obj.select_set(True)
+    
+    #meshData.validate()#added to prevent crash, this checks the imported mesh for breakages
+    
     meshData.update()
 
     #assigns vertex groups #mesh must be in object
     for bone in mesh.bones:
-        mesh_obj.vertex_groups.new(bone.name)
+        mesh_obj.vertex_groups.new(name=bone.name)
 
 
     for vgroup in mesh_obj.vertex_groups:
@@ -841,18 +871,17 @@ def read_scm() :
 
     meshData.update()
 
-    bpy.context.scene.update()
+    bpy.context.view_layer.update()
 
 
     bpy.ops.object.select_all(action='DESELECT')
 
-    mesh_obj.select = False
-    armObj.select = False
+    mesh_obj.select_set(False)
+    armObj.select_set(False)
 
-    #armObj.select = True
-    mesh_obj.select = True
-    armObj.select = True
-    scene.objects.active = armObj
+    mesh_obj.select_set(True)
+    armObj.select_set(True)
+    layer.objects.active = armObj
     bpy.ops.object.parent_set(type="ARMATURE")
 
     if len(mesh.info):
@@ -943,7 +972,7 @@ def get_mesh_bones():
 
     # Is there one armature? Take this one
     if arm_obj == None :
-        for obj in scene.objects:
+        for obj in scene.objects: #possibly change to layer.objects
             if obj.type == "ARMATURE":
                 arm_obj = obj
                 break
@@ -1061,7 +1090,7 @@ def read_end_anim(meshBones,anim):
     context = bpy.context
 
     arm_obj = None
-    for obj in scene.objects:
+    for obj in scene.objects: #possibly change to layer.objects
         if obj.type == "ARMATURE":
             arm_obj = obj
             break
@@ -1215,13 +1244,38 @@ def menu_func(self, context):
     self.layout.operator(IMPORT_OT_scm.bl_idname, text="Supcom Mesh (.scm)")
     self.layout.operator(IMPORT_OT_sca.bl_idname, text="Supcom Anim (.sca)")
 
-def register():
-    bpy.utils.register_module(__name__)
-    bpy.types.INFO_MT_file_import.append(menu_func)
 
-def unregister():
-    bpy.utils.unregister_module(__name__)
-    bpy.types.INFO_MT_file_import.remove(menu_func)
+classes = (
+    IMPORT_OT_sca,
+    IMPORT_OT_scm,
+)
+#register, unregister = bpy.utils.register_classes_factory(classes)
+
+
+def import_scm_button(self, context):
+    self.layout.operator(IMPORT_OT_scm.bl_idname, text="Import SupCom Mesh", icon='TEXTURE')
+
+def register():
+    bpy.types.TOPBAR_MT_file_import.append(menu_func)
+    bpy.types.VIEW3D_MT_image_add.append(menu_func)
+    for cls in classes:
+        #make_annotations(cls) # what is this? Read the section on annotations above!
+        bpy.utils.register_class(cls)
+
+def unregister():  # note how unregistering is done in reverse
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func)
+    bpy.types.VIEW3D_MT_image_add.remove(menu_func)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+
+# def register():
+    # bpy.utils.register_module(__name__)
+    # bpy.types.INFO_MT_file_import.append(menu_func)
+
+# def unregister():
+    # bpy.utils.unregister_module(__name__)
+    # bpy.types.INFO_MT_file_import.remove(menu_func)
 
 if __name__ == "__main__":
+    unregister()
     register()
