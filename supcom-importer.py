@@ -795,21 +795,17 @@ def read_scm() :
     #add verts
     vertlist = []
     for vert in mesh.vertices:
-        #ProgBarLSCM.do()
         vertlist.append(Vector(vert.position)@xy_to_xz_transform)
 
     meshData.calc_loop_triangles()
     
     meshData.vertices.add(len(vertlist))
-    #meshData.loop_triangles.add(len(mesh.faces))
     meshData.polygons.add(len(mesh.faces))
     meshData.vertices.foreach_set("co", unpack_list(vertlist))
     
     faces_loop_start = []
     lidx = 0
     for f in mesh.faces:
-        face_vert_loc_indices = f[0]
-        #nbr_vidx = len(face_vert_loc_indices)
         nbr_vidx = 3
         faces_loop_start.append(lidx)
         lidx += nbr_vidx
@@ -821,14 +817,13 @@ def read_scm() :
     meshData.polygons.foreach_set("loop_start", faces_loop_start)
     meshData.polygons.foreach_set("loop_total", (3,) * num_polys)
     
-    fv = [3 * i + j for i in range(n // 3) for j in (1, 0, 2)]
-    
-    #meshData.loops.foreach_set("vertex_index", unpack_list(vertlist))
-    #meshData.loop_triangles.foreach_set("vertices_raw", unpack_list( mesh.faces)) #what does this do?
-    meshData.polygons.foreach_set("vertices", fv)
-
-
-    print(len(meshData.loop_triangles))
+    #take the vertex data from the faces and put them into one long list
+    faceVertexOrderedList = []
+    for f in mesh.faces:
+        for faceVertex in range(3):
+            faceVertexOrderedList.append(f[faceVertex])
+    print(faceVertexOrderedList)
+    meshData.polygons.foreach_set("vertices", faceVertexOrderedList)
 
 
     #meshData.uv_textures.new(name='UVMap')
@@ -850,9 +845,7 @@ def read_scm() :
     layer.objects.active = mesh_obj
     mesh_obj.select_set(True)
     
-    #meshData.validate()#added to prevent crash, this checks the imported mesh for breakages
-    
-    meshData.update()
+    meshData.update() #blender crashes when going into edit mode without these
 
     #assigns vertex groups #mesh must be in object
     for bone in mesh.bones:
@@ -869,7 +862,7 @@ def read_scm() :
             if boneName == vgroup.name:
                 vgroup.add([vertex_index], 1.0, 'ADD')
 
-    meshData.update()
+    meshData.update() #blender crashes when going into edit mode without these
 
     bpy.context.view_layer.update()
 
