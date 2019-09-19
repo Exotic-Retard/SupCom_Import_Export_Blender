@@ -822,23 +822,21 @@ def read_scm() :
     for f in mesh.faces:
         for faceVertex in range(3):
             faceVertexOrderedList.append(f[faceVertex])
-    print(faceVertexOrderedList)
     meshData.polygons.foreach_set("vertices", faceVertexOrderedList)
 
 
-    #meshData.uv_textures.new(name='UVMap')
     meshData.uv_layers.new(name='UVMap')
-
-
+    
+    #put all the vertex UVs into one long list
+    uvVertexList = []
+    for polygon in meshData.polygons:
+        for vertid in polygon.vertices:
+            uvVertexList.append(mesh.vertices[vertid].uv1[0])
+            uvVertexList.append(1.0-mesh.vertices[vertid].uv1[1])
+            
     for uv in meshData.uv_layers: # uv texture
-        print(uv)
-        for face in meshData.loop_triangles:# face, uv
-            uv1 = mesh.vertices[mesh.faces[face.index][0]].uv1
-            uv.data[face.index].uv1 = Vector((uv1[0], 1.0-uv1[1]))
-            uv1 = mesh.vertices[mesh.faces[face.index][1]].uv1
-            uv.data[face.index].uv2 = Vector((uv1[0], 1.0-uv1[1]))
-            uv1 = mesh.vertices[mesh.faces[face.index][2]].uv1
-            uv.data[face.index].uv3 = Vector((uv1[0], 1.0-uv1[1]))
+        uv.data.foreach_set('uv', uvVertexList)
+
 
     mesh_obj = bpy.data.objects.new('Mesh', meshData)
     scene.collection.objects.link(mesh_obj)
