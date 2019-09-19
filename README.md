@@ -6,7 +6,7 @@ Python scripts to import and export Supreme Commander units (.scm) and animation
 Setting up the plugins :
 ------
 
-There are two branches, one for 2.79- which is working and stable. The version for 2.80+ is under development and barely working at all. Select the version you want from the branches dropdown, and download the importer and exporter files. They are counted as separate plugins.
+There are two branches, one for 2.79- which is working and stable. The version for 2.80+ is under development and working unstably. Select the version you want from the branches dropdown, and download the importer and exporter files. They are counted as separate plugins.
 
 These scripts are installed just like other blender plugins:
 You can then place them into your plugins directory: `BlenderInstallDir/BlenderVersion/scripts/addons`
@@ -35,10 +35,13 @@ Exporting :
 
 - Vertices at the same location will be merged, unless they are part of a sharp edge. Supcom uses merged vertices for smooth shading. To get hard shading, set the required edges to sharp, and then split them. The exporter will not merge them together.
 
+- When exporting animations, you need to have the armature with that animation selected.
+
 known bugs :
-Order of bones are not respected at export.
-All animations are exported as separate files, but they all contain the same active animation. Currently you must export them multiple times, once for each animation, and rename files to prevent overwriting.
-Blender 2.80 support status: supcom model importing works, nothing else works.
+- Order of bones are not respected at export.
+- Error instead of exporting animations when no armature is selected. select an armature and it works.
+- All animations are exported as separate files, but they all contain the same active animation. Currently you must export them multiple times, once for each animation, and rename files to prevent overwriting.
+- Blender 2.80 support status: supcom model importing works. animation importing works. supcom model exporting works. supcom animation exporting not working. code is unpolished and if your model is wrong instead of helpful errors you get useless errors.
 
 Credits to dan & Brent for the original version and all the engineering work. Thanks to Oygron for porting it to 2.71.
 My work has only been to help out with edge sharpness and pending 2.80 support.
