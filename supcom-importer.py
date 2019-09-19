@@ -604,7 +604,7 @@ class sca_anim :
         #bone.pose_matrix = Matrix(bone.rel_matrix * armature_bones[bone_index].rel_matrix_inv)#* xy_to_xz_transform)
         #print ("bone.rel_matrix",bone.rel_matrix)
         #print ("restBone.rel_matrix_inv",restBone.rel_matrix_inv)
-        bone.pose_matrix = Matrix(bone.rel_matrix * restBone.rel_matrix_inv)#* xy_to_xz_transform)
+        bone.pose_matrix = Matrix(bone.rel_matrix @ restBone.rel_matrix_inv)#* xy_to_xz_transform)
 
         # pose position relative to the armature
         bone.pose_matrix.transpose()
@@ -914,15 +914,15 @@ def iterate_bones(meshBones, bone, parent = None, scm_parent_index = -1):
     #print ("bone_matrix",bone_matrix)
     
     # Calculate the inverse rest pose for the bone #instead bonearmmat*worldmat = Matrix['BONESPACE']
-    b_rest_pose     = bone_matrix * MArmatureWorld
-    b_rest_pose_inv = ( b_rest_pose * xz_to_xy_transform ).inverted()
+    b_rest_pose     = bone_matrix @ MArmatureWorld
+    b_rest_pose_inv = ( b_rest_pose @ xz_to_xy_transform ).inverted()
 
     if (parent == None):
-        rel_mat = b_rest_pose * xz_to_xy_transform
+        rel_mat = b_rest_pose @ xz_to_xy_transform
         #root pos is the same as the rest-pose
     else:
         parent_matrix_inv = Matrix( parent.matrix_local.transposed() ).inverted()
-        rel_mat = Matrix(bone_matrix * parent_matrix_inv)
+        rel_mat = Matrix(bone_matrix @ parent_matrix_inv)
         # must be BM * PMI in that order
         # do not use an extra (absolute) extra rotation here, cause this is only relative
     
@@ -995,10 +995,10 @@ def get_mesh_bones():
 
         # the bone matrix relative to the parent.
         if (bone.parent != 0):
-            mrel = (bone.rel_mat) * Matrix(bone.parent.rel_mat).inverted() #* xy_to_xz_transform
+            mrel = (bone.rel_mat) @ Matrix(bone.parent.rel_mat).inverted() #* xy_to_xz_transform
             bone.rel_matrix_inv = Matrix(mrel).inverted()
         else:
-            mrel = bone.rel_mat * xy_to_xz_transform  #there is no parent
+            mrel = bone.rel_mat @ xy_to_xz_transform  #there is no parent
             bone.rel_matrix_inv = Matrix(mrel).inverted()
                 
     #debug
@@ -1149,7 +1149,8 @@ def read_end_anim(meshBones,anim):
     #context = scene.getRenderingContext()
 
     context.scene.frame_end = len(anim.frames)
-    bpy.context.scene.update()
+    #bpy.context.scene.update()
+    bpy.context.view_layer.update()
 
     print( "=== COMPLETE ===")
 
