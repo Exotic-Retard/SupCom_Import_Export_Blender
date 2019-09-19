@@ -31,6 +31,10 @@
 # 0.4.0  2014-07-13 Oygron   Script ported to Blender 2.71
 #
 #
+# 0.5.0  2019-08-29 [e]Exotic_Retard  Script ported to Blender 2.80
+#               support for smooth and hard edges added
+#
+#
 # Todo
 #   - GUI improvements
 #   - Support for LOD exporting. Eg. not merging all meshes for an armature into one mech but rather only
@@ -46,11 +50,11 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter",
-    "author": "dan & Brent & Oygron",
-    "version": (0,4,0),
-    "blender": (2, 71, 0),
-    "location": "File -> Export",
+    "name": "Supcom Exporter 0.5.0",
+    "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
+    "version": (0,5,0),
+    "blender": (2, 80, 0),
+    "location": "File > Import-Export",
     "description": "Exports Supcom files",
     "warning": "",
     "wiki_url": "http://forums.gaspowered.com/"
@@ -77,7 +81,7 @@ from string import *
 from struct import *
 from bpy.props import *
 
-VERSION = '4.0'
+VERSION = '5.0'
 
 ######################################################
 # User defined behaviour, Select as you need
@@ -120,23 +124,27 @@ BONES = []
 keyedBones = set()
 
 ANIMATION_DURATION = 1.5
+
+
+
+
 def my_popup(msg):
     global inError
     if inError == 0:
         inError = 1
         def draw(self, context):
-            self.layout.label(msg)
+            self.layout.label(text=msg)
         bpy.context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
     
 
 def my_popup_warn(msg):
     def draw(self, context):
-        self.layout.label(msg)
+        self.layout.label(text=msg)
     bpy.context.window_manager.popup_menu(draw, title="Warning", icon='ERROR')
 
 def my_popup_info(msg):
     def draw(self, context):
-        self.layout.label(msg)
+        self.layout.label(text=msg)
     bpy.context.window_manager.popup_menu(draw, title="Info", icon='INFO')
 
 
@@ -716,15 +724,15 @@ def iterate_bones(mesh, bone, parent = None, scm_parent_index = -1):
     #print ("bone_matrix",bone_matrix)
     
     # Calculate the inverse rest pose for the bone #instead bonearmmat*worldmat = Matrix['BONESPACE']
-    b_rest_pose     = bone_matrix * MArmatureWorld
-    b_rest_pose_inv = ( b_rest_pose * xy_to_xz_transform ).inverted()
+    b_rest_pose     = bone_matrix @ MArmatureWorld
+    b_rest_pose_inv = ( b_rest_pose @ xy_to_xz_transform ).inverted()
 
     if (parent == None):
-        rel_mat = b_rest_pose * xy_to_xz_transform
+        rel_mat = b_rest_pose @ xy_to_xz_transform
         #root pos is the same as the rest-pose
     else:
         parent_matrix_inv = Matrix( parent.matrix_local.transposed() ).inverted()
-        rel_mat = Matrix(bone_matrix * parent_matrix_inv)
+        rel_mat = Matrix(bone_matrix @ parent_matrix_inv)
         # must be BM * PMI in that order
         # do not use an extra (absolute) extra rotation here, cause this is only relative
     
@@ -775,6 +783,7 @@ def make_scm(arm_obj):
     arm = arm_obj.data
 
     scn = bpy.context.scene
+    layer = bpy.context.view_layer
 
 
     bpy.ops.object.select_all(action='DESELECT')
@@ -788,11 +797,12 @@ def make_scm(arm_obj):
         #print ("type",obj.type)
         if obj.parent == arm_obj and obj.type == 'MESH':
             #calculate progbar length
-            obj.data.update (calc_tessface=True)
+            obj.data.calc_loop_triangles()
+            #obj.data.update (calc_tessface=True)
             
             bmesh_data = obj.data
             #print ("data",obj.data)
-            pb_length += len(bmesh_data.tessfaces)
+            pb_length += len(bmesh_data.loop_triangles)
             #print("nb tessfaces",len(bmesh_data.tessfaces))
             mesh_objs.append(obj)
 
@@ -820,7 +830,8 @@ def make_scm(arm_obj):
     # Process all the meshes
     for mesh_obj in mesh_objs:
 
-        mesh_obj.data.update (calc_tessface=True)
+        mesh_obj.data.calc_loop_triangles()
+        #mesh_obj.data.update (calc_tessface=True)
         bmesh_data = mesh_obj.data
         
         # Build lookup dictionary for edge keys to edges
@@ -831,15 +842,17 @@ def make_scm(arm_obj):
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
 
-        if not bmesh_data.tessface_uv_textures :
+        #if not bmesh_data.tessface_uv_textures :
+        if not bmesh_data.uv_layers :
             my_popup("Mesh has no texture values -> Please set your UV!")
             print("Mesh has no texture values -> Please set your UV!")
             return
 
         MatrixMesh = Matrix(mesh_obj.matrix_world)
         mesh_name = mesh_obj.name
+        uvData = bmesh_data.uv_layers.active.data[:]
 
-        for face in bmesh_data.tessfaces:
+        for face in bmesh_data.loop_triangles:
             #print ("face",face)
             #ProgBarFaces.do()
 
@@ -876,7 +889,8 @@ def make_scm(arm_obj):
                     bpy.ops.object.mode_set(mode='OBJECT')
                     bpy.ops.object.select_all(action='DESELECT')
                     
-                    mesh_obj.select=True
+                    #mesh_obj.select=True
+                    mesh_obj.select_set(True)
                     bpy.context.scene.objects.active = mesh_obj
                     
                     bpy.ops.object.mode_set(mode='EDIT')
@@ -885,35 +899,35 @@ def make_scm(arm_obj):
                     
                     #On ne peut sélectionner les vertices qu'en object mode (apparemment, on bosse sur une copie)
                     bpy.ops.object.mode_set(mode='OBJECT')
-                    bmesh_data.vertices[vert].select = True
+                    #bmesh_data.vertices[vert].select = True
+                    bmesh_data.vertices[vert].select_set(True)
                     bpy.ops.object.mode_set(mode='EDIT')
                     
                     my_popup("Error: Vertice without Bone Influence in %s. (Selected) " % (mesh_name))
                     print("Error: Vertice without Bone Influence in %s. (Selected) " % (mesh_name))
                     return
-                v_pos = Vector( vertex.co * (MatrixMesh * xy_to_xz_transform))
+                v_pos = Vector( vertex.co @ (MatrixMesh @ xy_to_xz_transform))
 
-                v_nor = vertex.normal * (MatrixMesh * xy_to_xz_transform)
+                v_nor = vertex.normal @ (MatrixMesh @ xy_to_xz_transform)
 
                 #needed cause supcom scans an image in the opposite vertical direction or something?.
 
-
-                uv = bmesh_data.tessface_uv_textures[0]
-
-                my_uv = None
-                if (i == 0):
-                    my_uv = uv.data[face.index].uv1
-                if (i == 1):
-                    my_uv = uv.data[face.index].uv2
-                if (i == 2):
-                    my_uv = uv.data[face.index].uv3
+                #uvData = bmesh_data.uv_layers.active.data[:] #TODO:put this outside the vertex loop
                 
+                my_uv = None
+                start = bmesh_data.polygons[face.index].loop_start
+                end = start + bmesh_data.polygons[face.index].loop_total
+                uvtuple = tuple(tuple(uv.uv) for uv in uvData[start:end])
+                my_uv = uvtuple[i]
+                
+                #TODO:make this error detector work again
                 if my_uv is None :
                     i = face.index
                     bpy.ops.object.mode_set(mode='OBJECT')
                     bpy.ops.object.select_all(action='DESELECT')
                     
-                    mesh_obj.select=True
+                    #mesh_obj.select=True
+                    mesh_obj.select_set(True)
                     bpy.context.scene.objects.active = mesh_obj
                     
                     bpy.ops.object.mode_set(mode='EDIT')
@@ -922,11 +936,13 @@ def make_scm(arm_obj):
                     
                     #On ne peut sélectionner les vertices qu'en object mode (apparemment, on bosse sur une copie)
                     bpy.ops.object.mode_set(mode='OBJECT')
-                    mesh_obj.data.update (calc_tessface=True)
+                    mesh_obj.data.calc_loop_triangles()
+                    #mesh_obj.data.update (calc_tessface=True)
                     #on va prendre tous les points de la face, et les sélectionner.
                     for i in range(len(face.vertices)):
                         vert = face.vertices[i]
-                        bmesh_data.vertices[vert].select = True
+                        #bmesh_data.vertices[vert].select = True
+                        bmesh_data.vertices[vert].select_set(True)
                         
                         
                     bpy.ops.object.mode_set(mode='EDIT')
@@ -1076,9 +1092,9 @@ def make_sca(arm_obj, action):
             #    print ("MArmatureWorld",MArmatureWorld)
 
             if (bone.parent_index == -1):
-                rel_mat = (pose_bone_matrix * MArmatureWorld) * xy_to_xz_transform
+                rel_mat = (pose_bone_matrix @ MArmatureWorld) @ xy_to_xz_transform
             else:
-                rel_mat = pose_bone_matrix * POSED_BONES[BONES[bone.parent_index].name].transposed().inverted()
+                rel_mat = pose_bone_matrix @ POSED_BONES[BONES[bone.parent_index].name].transposed().inverted()
                 #if frame_counter == 0 or frame_counter == 100:
                 #    print ("parentMatrix",POSED_BONES[BONES[bone.parent_index].name])
 
@@ -1110,7 +1126,7 @@ def export_scm(outdir):
 
     #xy_to_xz_transform.resize_4x4()
 
-    scene = bpy.context.scene
+    scene = bpy.context.scene #TODO:prioritise visible objects over this
 
     # Get Selected object(s)
     selected_objects = bpy.context.selected_objects
@@ -1300,17 +1316,34 @@ def menu_func(self, context):
 #===========================================================================
 # Entry
 #===========================================================================
-def register():
-    #print("REGISTER")
-    bpy.utils.register_module(__name__)
-    bpy.types.INFO_MT_file_export.append(menu_func)
 
-def unregister():
-    #print("UNREGISTER")
-    bpy.utils.unregister_module(__name__)
-    bpy.types.INFO_MT_file_export.remove(menu_func)
+
+classes = (
+    EXPORT_OT_sca,
+    EXPORT_OT_scm,
+)
+#register, unregister = bpy.utils.register_classes_factory(classes)
+
+def register():
+    bpy.types.TOPBAR_MT_file_export.append(menu_func)
+    for cls in classes:
+        #make_annotations(cls) # what is this? Read the section on annotations above!
+        bpy.utils.register_class(cls)
+
+def unregister():  # note how unregistering is done in reverse
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func)
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+# def register():
+    # #print("REGISTER")
+    # bpy.utils.register_module(__name__)
+    # bpy.types.INFO_MT_file_export.append(menu_func)
+
+# def unregister():
+    # #print("UNREGISTER")
+    # bpy.utils.unregister_module(__name__)
+    # bpy.types.INFO_MT_file_export.remove(menu_func)
 
 if __name__ == "__main__":
-    #print("\n"*4)
-    print(header("SupCom Export scm/sca 4.0", 'CENTER'))
+    unregister()
     register()
