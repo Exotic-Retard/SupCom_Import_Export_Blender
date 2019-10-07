@@ -416,12 +416,19 @@ class scm_mesh :
         # Read indices (triangles)
         tristruct = '3h'
         trisize = struct.calcsize(tristruct)
-
+        
         scm.seek(indexoffset, 0)
         for t in range(tricount):
             buffer = scm.read(trisize)
-            face = struct.unpack(tristruct, buffer)
-            self.faces.append(list(face)+[0])
+            face = list(struct.unpack(tristruct, buffer))
+            for v in range(len(face)):
+                if face[v] < 0:
+                    face[v] = face[v] + 32768*2 #supcom doesnt mind storing negative vertex indices due to overflow in the face data, but blender crashes
+                if face[v] < 0: #incase of some other insanity we dont know about yet
+                    print('face vertex index below 0, setting to 0 to avoid crash: ',face[v])
+                    face[v] = 0
+                    
+            self.faces.append(face+[0])
 
 
         # Read info
@@ -791,18 +798,37 @@ def read_scm() :
     #add verts
     vertlist = []
     for vert in mesh.vertices:
-        #ProgBarLSCM.do()
         vertlist.append(Vector(vert.position)*xy_to_xz_transform)
 
-
+    #meshData.calc_loop_triangles()
+    meshData.calc_tessface()
+    
     meshData.vertices.add(len(vertlist))
-    meshData.tessfaces.add(len(mesh.faces))
+    meshData.polygons.add(len(mesh.faces))
     meshData.vertices.foreach_set("co", unpack_list(vertlist))
-    meshData.tessfaces.foreach_set("vertices_raw", unpack_list( mesh.faces))
-
-
-    print(len(meshData.tessfaces))
-
+    
+    faces_loop_start = []
+    lidx = 0
+    for f in mesh.faces:
+        #print(f)
+        nbr_vidx = 3
+        faces_loop_start.append(lidx)
+        lidx += nbr_vidx
+    
+    
+    n = len(vertlist)
+    num_polys = len(mesh.faces)
+    meshData.loops.add(num_polys * 3)
+    meshData.polygons.foreach_set("loop_start", faces_loop_start)
+    meshData.polygons.foreach_set("loop_total", (3,) * num_polys)
+    
+    #take the vertex data from the faces and put them into one long list
+    faceVertexOrderedList = []
+    for f in mesh.faces:
+        for faceVertex in range(3):
+            faceVertexOrderedList.append(f[faceVertex])
+    meshData.polygons.foreach_set("vertices", faceVertexOrderedList)
+    print(faceVertexOrderedList)
 
     meshData.uv_textures.new(name='UVMap')
 
@@ -849,7 +875,6 @@ def read_scm() :
     mesh_obj.select = False
     armObj.select = False
 
-    #armObj.select = True
     mesh_obj.select = True
     armObj.select = True
     scene.objects.active = armObj
