@@ -421,8 +421,15 @@ class scm_mesh :
         scm.seek(indexoffset, 0)
         for t in range(tricount):
             buffer = scm.read(trisize)
-            face = struct.unpack(tristruct, buffer)
-            self.faces.append(list(face)+[0])
+            face = list(struct.unpack(tristruct, buffer))
+            for v in range(len(face)):
+                if face[v] < 0:
+                    face[v] = face[v] + 32768*2 #supcom doesnt mind storing negative vertex indices due to overflow in the face data, but blender crashes
+                if face[v] < 0: #incase of some other insanity we dont know about yet
+                    print('face vertex index below 0, setting to 0 to avoid crash: ',face[v])
+                    face[v] = 0
+                    
+            self.faces.append(face+[0])
 
 
         # Read info
