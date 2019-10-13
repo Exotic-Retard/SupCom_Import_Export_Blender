@@ -8,6 +8,8 @@
 #   0.2.0   06/06/10   - Added SCA (Animation) support
 #   0.3.0   06/07/02   - Alpha release
 #   0.4.0   2014-07-13 - Adapted to Blender 2.71
+#   0.4.1   2019-10-07 [e]Exotic_Retard
+#               support for large models with more than 32000 vertices added
 #
 # Todo
 #   - Material/uv map 2
@@ -21,8 +23,8 @@
 bl_info = {
     "name": "Supcom Importer",
     "author": "dan & Brent & Oygron",
-    "version": (0,4,0),
-    "blender": (2, 71, 0),
+    "version": (0,4,1),
+    "blender": (2, 79, 0),
     "location": "File -> Import",
     "description": "Imports Supcom files",
     "warning": "",
