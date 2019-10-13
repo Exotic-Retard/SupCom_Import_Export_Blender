@@ -33,6 +33,10 @@
 #
 # 0.5.0  2019-08-29 [e]Exotic_Retard  Script ported to Blender 2.80
 #               support for smooth and hard edges added
+# 0.5.1  2019-10-13 [e]Exotic_Retard
+#               change padding size from 32 bit to 16 bit, thats how the max plugin does it
+#               change padding character from X to Å; thats how it is in the base game models, and the max plugin breaks if it doesnt see them
+#               fix an issue with animation exports when there are multiple objects with actions
 #
 #
 # Todo
@@ -50,9 +54,9 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter 0.5.0",
+    "name": "Supcom Exporter 0.5.1",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,0),
+    "version": (0,5,1),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
@@ -673,15 +677,17 @@ class sca_anim :
 ######################################################
 
 def pad(size):
-    val = 32 - (size % 32)
+    val = 16 - (size % 16)
     if (val < 4):
-        val = val + 32
+        val = val + 16
 
     return val
 
 def pad_file(file, s4comment):
     N = pad(file.tell()) - 4
-    filldata = b'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+    #filldata = b'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+    filldata = b'\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5'#the original supcom files use Å instead of X as padding, and the max importer searches for this character explicitly.
+    # C5 is Å in hex code, and its 197 which is over 128 so we put it as an escape char so python doesnt explode
     padding = struct.pack(str(N)+'s4s', filldata[0:N], s4comment)
 
     file.write(padding)
@@ -1190,15 +1196,16 @@ def export_sca(outdir):
 
 
     # SCA
-    # This plays through every action and records the relevant bone positions every frame, then saves that to sca
-    for action in bpy.data.actions:
-        #set active action
-        arm_obj.animation_data.action = action
-        
-        animation = make_sca(arm_obj, action)
-        animation.save(outdir + action.name + ".sca")
-        
-        my_popup_info("Action saved to " + action.name)
+    # This plays through every action in the NLA tracks linked to our armature and records the relevant bone positions every frame, then saves that to sca
+    for track in arm_obj.animation_data.nla_tracks:
+        for NlaStrip in track.strips:
+            #set active action
+            arm_obj.animation_data.action = NlaStrip.action
+            
+            animation = make_sca(arm_obj, NlaStrip.action)
+            animation.save(outdir + NlaStrip.action.name + ".sca")
+            
+            my_popup_info("Action saved to " + NlaStrip.action.name)
 
 
 
