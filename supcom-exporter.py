@@ -33,6 +33,10 @@
 # 0.4.1  2019-09-19 [e]Exotic_Retard
 #               support for smooth and hard edges added
 #               support for multiple animations added
+# 0.4.2  2019-10-03 [e]Exotic_Retard
+#               change padding size from 32 bit to 16 bit, thats how the max plugin does it
+#               change padding character from X to Å; thats how it is in the base game models, and the max plugin breaks if it doesnt see them
+#               fix an issue with animation exports when there are multiple objects with actions
 #
 # Todo
 #   - GUI improvements
@@ -45,13 +49,14 @@
 #   - Export LUA script for use in the animation viewer (eg, start anim, set texture etc)..
 #   - Set root rot/pos for sca
 #   - Progress bar
+#   - Support for exporting different animation lengths
 #
 #**************************************************************************************************
 
 bl_info = {
     "name": "Supcom Exporter",
     "author": "dan & Brent & Oygron",
-    "version": (0,4,1),
+    "version": (0,4,2),
     "blender": (2, 79, 0),
     "location": "File -> Export",
     "description": "Exports Supcom files",
@@ -80,7 +85,7 @@ from string import *
 from struct import *
 from bpy.props import *
 
-VERSION = '4.0'
+VERSION = '4.2'
 
 ######################################################
 # User defined behaviour, Select as you need
@@ -188,7 +193,7 @@ class scm_bone :
         #print(self.name)
         #print(self.rest_pose_inv)
 
-
+        
         if LOG_BONE :
             print(" %s rp_inv: [%.3f, %.3f, %.3f, %.3f],\t [%.3f, %.3f, %.3f, %.3f],\t [%.3f, %.3f, %.3f, %.3f],\t [%.3f, %.3f, %.3f, %.3f] \tpos: [%.3f, %.3f, %.3f] \trot: [%.3f, %.3f, %.3f, %.3f] %d"
             % (    self.name, rp_inv[0], rp_inv[1], rp_inv[2], rp_inv[3],
@@ -461,6 +466,7 @@ class scm_mesh :
 
         for bone in self.bones:
             bone.name_offset = scm.tell()
+            print(bone.name_offset)
             name = bone.name
             buffer = struct.pack(str(len(name) + 1)+'s', bytearray(name,'ascii'))
             scm.write(buffer)
@@ -668,15 +674,17 @@ class sca_anim :
 ######################################################
 
 def pad(size):
-    val = 32 - (size % 32)
+    val = 16 - (size % 16)
     if (val < 4):
-        val = val + 32
+        val = val + 16
 
     return val
 
 def pad_file(file, s4comment):
     N = pad(file.tell()) - 4
-    filldata = b'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+    #filldata = b'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+    filldata = b'\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5\xC5'#the original supcom files use Å instead of X as padding, and the max importer searches for this character explicitly.
+    # C5 is Å in hex code, and its 197 which is over 128 so we put it as an escape char so python doesnt explode
     padding = struct.pack(str(N)+'s4s', filldata[0:N], s4comment)
 
     file.write(padding)
@@ -1182,15 +1190,16 @@ def export_sca(outdir):
 
 
     # SCA
-    # This plays through every action and records the relevant bone positions every frame, then saves that to sca
-    for action in bpy.data.actions:
-        #set active action
-        arm_obj.animation_data.action = action
-        
-        animation = make_sca(arm_obj, action)
-        animation.save(outdir + action.name + ".sca")
-        
-        my_popup_info("Action saved to " + action.name)
+    # This plays through every action in the NLA tracks linked to our armature and records the relevant bone positions every frame, then saves that to sca
+    for track in arm_obj.animation_data.nla_tracks:
+        for NlaStrip in track.strips:
+            #set active action
+            arm_obj.animation_data.action = NlaStrip.action
+            
+            animation = make_sca(arm_obj, NlaStrip.action)
+            animation.save(outdir + NlaStrip.action.name + ".sca")
+            
+            my_popup_info("Action saved to " + NlaStrip.action.name)
 
 
 
