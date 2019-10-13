@@ -9,6 +9,7 @@
 #   0.3.0   06/07/02   - Alpha release
 #   0.4.0   2014-07-13 - Adapted to Blender 2.71
 #   0.5.0   2019-08-29 - Adapted to Blender 2.80
+#   0.5.1   2019-10-13 - Added support for importing files with more vertices
 #
 # Todo
 #   - Material/uv map 2
@@ -20,9 +21,9 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Importer 0.5.0",
+    "name": "Supcom Importer 0.5.1",
     "author": "dan & Brent & Oygron",
-    "version": (0,5,0),
+    "version": (0,5,1),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Imports Supcom files",
