@@ -37,6 +37,8 @@
 #               change padding size from 32 bit to 16 bit, thats how the max plugin does it
 #               change padding character from X to Å; thats how it is in the base game models, and the max plugin breaks if it doesnt see them
 #               fix an issue with animation exports when there are multiple objects with actions
+# 0.5.3  2019-11-06 [e]Exotic_Retard
+#               made the scm export several times faster, especially on large models, where the speedup is from minutes to seconds
 #
 #
 # Todo
@@ -56,7 +58,7 @@
 bl_info = {
     "name": "Supcom Exporter 0.5.1",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,1),
+    "version": (0,5,3),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
@@ -378,41 +380,44 @@ class scm_mesh :
     def __init__(self):
         self.bones = []
         self.vertices = []
+        self.smoothEdgeKeys = {}
         self.faces = []
         self.info = []
         self.vertcounter = 0
 
     def addVert( self, nvert ):
         if VERTEX_OPTIMIZE :
-            #search for vertex already in list
-            vertind = 0
-            for vert in self.vertices :
-                if nvert.uv1 == vert.uv1 and nvert.position == vert.position :
-                    #compare the lists of smooth edges. if they share an edge, then they need to be merged.
-                    shouldMerge = 0
-                    for edge in nvert.smoothEdges :
-                        if edge in vert.smoothEdges :
-                            #print ("smooth edge found, merging")
-                            shouldMerge = 1
-                    if shouldMerge == 1 :
-                        break    #found vert in list keep that index, and merge the vertices
-                vertind += 1 #hmm not that one, dont merge
-
-            if vertind == len(self.vertices)  :
+            vertind = len(self.vertices)
+            
+            for edgekey in nvert.smoothEdges :
+                if edgekey in self.smoothEdgeKeys :
+                    for storedVertInd in self.smoothEdgeKeys[edgekey] :
+                        vert = self.vertices[storedVertInd]
+                        if nvert.uv1 == vert.uv1 and nvert.position == vert.position :
+                            vertind = storedVertInd #change the vertex index to the one we are merging to
+                            self.mergeVertices(vert,nvert,vertind)
+                            
+            #update the edge keys in the dictionary
+            for edgeKey in nvert.smoothEdges :
+                if not edgeKey in self.smoothEdgeKeys :
+                    self.smoothEdgeKeys[edgeKey] = {}
+                self.smoothEdgeKeys[edgeKey][vertind] = True
+            
+            #if no merging was done, append the entry
+            if vertind == len(self.vertices) :
                 self.vertices.append( nvert )
-            else:
-                vert = self.vertices[vertind]
-
-                vert.tangent = Vector( (vert.tangent + nvert.tangent) )
-                vert.binormal = Vector( (vert.binormal + nvert.binormal) )
-                vert.normal = Vector( (vert.normal + nvert.normal) )
-
-                self.vertices[vertind] = vert
-
+            
             return vertind
         else:
             self.vertices.append(nvert)
             return len(self.vertices)-1
+
+    def mergeVertices( self, vert, nvert, vertind ):
+        vert.tangent = Vector( (vert.tangent + nvert.tangent) )
+        vert.binormal = Vector( (vert.binormal + nvert.binormal) )
+        vert.normal = Vector( (vert.normal + nvert.normal) )
+
+        self.vertices[vertind] = vert
 
     def addFace( self, face ):
 
