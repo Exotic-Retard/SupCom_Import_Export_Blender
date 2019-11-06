@@ -37,6 +37,8 @@
 #               change padding size from 32 bit to 16 bit, thats how the max plugin does it
 #               change padding character from X to Å; thats how it is in the base game models, and the max plugin breaks if it doesnt see them
 #               fix an issue with animation exports when there are multiple objects with actions
+# 0.4.3  2019-11-06 [e]Exotic_Retard
+#               made the scm export several times faster, especially on large models, where the speedup is from minutes to seconds
 #
 # Todo
 #   - GUI improvements
@@ -55,8 +57,8 @@
 
 bl_info = {
     "name": "Supcom Exporter",
-    "author": "dan & Brent & Oygron",
-    "version": (0,4,2),
+    "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
+    "version": (0,4,3),
     "blender": (2, 79, 0),
     "location": "File -> Export",
     "description": "Exports Supcom files",
@@ -374,42 +376,48 @@ class scm_mesh :
     def __init__(self):
         self.bones = []
         self.vertices = []
+        self.smoothEdgeKeys = {}
         self.faces = []
         self.info = []
         self.vertcounter = 0
 
     def addVert( self, nvert ):
         if VERTEX_OPTIMIZE :
-            #search for vertex already in list
-            vertind = 0
-            for vert in self.vertices :
-                if nvert.uv1 == vert.uv1 and nvert.position == vert.position :
-                    #compare the lists of smooth edges. if they share an edge, then they need to be merged.
-                    shouldMerge = 0
-                    for edge in nvert.smoothEdges :
-                        if edge in vert.smoothEdges :
-                            #print ("smooth edge found, merging")
-                            shouldMerge = 1
-                    if shouldMerge == 1 :
-                        break    #found vert in list keep that index, and merge the vertices
-                vertind += 1 #hmm not that one, dont merge
-
-            if vertind == len(self.vertices)  :
+            vertind = len(self.vertices)
+            
+            for edgekey in nvert.smoothEdges :
+                if edgekey in self.smoothEdgeKeys :
+                    for storedVertInd in self.smoothEdgeKeys[edgekey] :
+                        vert = self.vertices[storedVertInd]
+                        if nvert.uv1 == vert.uv1 and nvert.position == vert.position :
+                            vertind = storedVertInd #change the vertex index to the one we are merging to
+                            self.mergeVertices(vert,nvert,vertind)
+                            
+            #update the edge keys in the dictionary
+            for edgeKey in nvert.smoothEdges :
+                if not edgeKey in self.smoothEdgeKeys :
+                    self.smoothEdgeKeys[edgeKey] = {}
+                self.smoothEdgeKeys[edgeKey][vertind] = True
+            
+            #if no merging was done, append the entry
+            if vertind == len(self.vertices) :
                 self.vertices.append( nvert )
-            else:
-                vert = self.vertices[vertind]
-
-                vert.tangent = Vector( (vert.tangent + nvert.tangent) )
-                vert.binormal = Vector( (vert.binormal + nvert.binormal) )
-                vert.normal = Vector( (vert.normal + nvert.normal) )
-
-                self.vertices[vertind] = vert
-
+            
             return vertind
         else:
             self.vertices.append(nvert)
             return len(self.vertices)-1
 
+    def mergeVertices( self, vert, nvert, vertind ):
+        
+        #vert = self.vertices[vertind]
+
+        vert.tangent = Vector( (vert.tangent + nvert.tangent) )
+        vert.binormal = Vector( (vert.binormal + nvert.binormal) )
+        vert.normal = Vector( (vert.normal + nvert.normal) )
+
+        self.vertices[vertind] = vert
+        
     def addFace( self, face ):
 
         facein = [ self.addVert(nvert) for nvert in face.vertex_cont]
@@ -838,6 +846,7 @@ def make_scm(arm_obj):
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
         
+        #why is this here twice?
         # Build lookup dictionary for edge keys to edges
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
@@ -948,18 +957,16 @@ def make_scm(arm_obj):
                 
                 v_uv1 = Vector((my_uv[0], 1.0 - my_uv[1]))
                 
-                #find if the vertex is sharp or not so it can be excluded from merging later
+                #for each vertex give it a list of smooth edges its part of so it can be merged down later
                 v_smoothEdgeList = []
                 
                 for ek in face.edge_keys :
                     edge = face_edge_map[ek]
                     if not edge.use_edge_sharp :
-                        #print ("sharp edge found")
-                        for sharpVert in edge.vertices :
-                            #print ("vertexID", sharpVert, "value of vertex.index", vertex.index)
-                            if vertex.index == sharpVert :
+                        for smoothVert in edge.vertices :
+                            if vertex.index == smoothVert :
                                 v_smoothEdgeList.append( ek )
-
+                
                 vertList.append( scm_vertex( v_pos, v_nor, v_uv1, v_boneIndex, v_smoothEdgeList) )
 
             if len(vertList) > 3:
