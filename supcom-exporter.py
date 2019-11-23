@@ -39,6 +39,8 @@
 #               fix an issue with animation exports when there are multiple objects with actions
 # 0.5.3  2019-11-06 [e]Exotic_Retard
 #               made the scm export several times faster, especially on large models, where the speedup is from minutes to seconds
+# 0.5.4  2019-11-23 [e]Exotic_Retard
+#               Fixed support for many bones in the model - now up to 256 linked and 256^2 empty bones
 #
 #
 # Todo
@@ -56,9 +58,9 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter 0.5.1",
+    "name": "Supcom Exporter 0.5.4",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,3),
+    "version": (0,5,4),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
@@ -87,7 +89,7 @@ from string import *
 from struct import *
 from bpy.props import *
 
-VERSION = '5.0'
+VERSION = '5.4'
 
 ######################################################
 # User defined behaviour, Select as you need
@@ -162,6 +164,7 @@ class scm_bone :
     position = []
     parent_index = 0
     keyed = False
+    used = False
     name = ""
 
     def __init__(self, name, rest_pose_inv, rotation, position, parent_index):
@@ -174,8 +177,15 @@ class scm_bone :
         self.name = name
 
     def save(self, file):
-        bonestruct = '16f3f4f4i'
-        #bonestruct = '16f3f4f4L' #Deprecation warning L and mistyrious binary output
+        bonestruct = '16f3f4f4l'
+        #4x4 matrix 
+        #3 position
+        #4 rotation
+        #name offset
+        #bone parent index
+        #unknown
+        
+        
         rp_inv = [0] * 16
 
         icount = 0
@@ -194,21 +204,6 @@ class scm_bone :
             self.rotation.w,self.rotation.x,self.rotation.y,self.rotation.z, #Quaternion (w,x,y,z)#w,x,y,z
             self.name_offset, self.parent_index,
             0,0)
-
-
-        #print(self.name)
-        #print(self.rest_pose_inv)
-
-
-        if LOG_BONE :
-            print(" %s rp_inv: [%.3f, %.3f, %.3f, %.3f],\t [%.3f, %.3f, %.3f, %.3f],\t [%.3f, %.3f, %.3f, %.3f],\t [%.3f, %.3f, %.3f, %.3f] \tpos: [%.3f, %.3f, %.3f] \trot: [%.3f, %.3f, %.3f, %.3f] %d"
-            % (    self.name, rp_inv[0], rp_inv[1], rp_inv[2], rp_inv[3],
-                rp_inv[4], rp_inv[5], rp_inv[6], rp_inv[7],
-                rp_inv[8], rp_inv[9], rp_inv[10],rp_inv[11],
-                rp_inv[12],rp_inv[13],rp_inv[14],rp_inv[15],
-                self.position[0],self.position[1],self.position[2],
-                self.rotation[0],self.rotation[1],self.rotation[2],self.rotation[3], self.parent_index))
-
 
         file.write(bonedata)
 
@@ -245,30 +240,23 @@ class scm_vertex :
     def save(self, file):
 
         vertstruct = '3f3f3f3f2f2f4B'
+        #3 position
+        #3 normal
+        #3 tangent
+        #3 binormal
+        #2 uv1
+        #2 uv2
+        #4 bone index, but we fill the first one with non-zero values
 
-        #so finaly we can norm because here it is sure that no tang norm will be added
-        #self.normal = CrossVecs(self.tangent, self.binormal).normalize()
+        #so finally we can norm because here it is sure that no tang norm will be added
         self.tangent.normalize()
         self.binormal.normalize()
         self.normal.normalize()
 
-        if False :
+        if False : #why is this here
             self.tangent = Vector((0,0,0))
             self.binormal= Vector((0,0,0))
             #self.normal  = Vector(0,0,0)
-
-        if LOG_VERT :
-            print( " pos: [%.3f, %.3f, %.3f] \tn: [%.3f, %.3f, %.3f] \tt: [%.3f, %.3f, %.3f] \tb: [%.3f, %.3f, %.3f] \tuv [ %.3f, %.3f | %.3f, %.3f ] \tbi: [%d, %d, %d, %d]"
-
-            % (
-                self.position[0], self.position[1], self.position[2],
-                self.normal[0],   self.normal[1],   self.normal[2],
-                self.tangent[0],  self.tangent[1],  self.tangent[2],
-                self.binormal[0], self.binormal[1], self.binormal[2],
-                self.uv1[0], self.uv1[1],
-                self.uv2[0], self.uv2[1],
-                self.bone_index[0], self.bone_index[1],
-                self.bone_index[2], self.bone_index[3]) )
 
         # so you store in this order:
         # pos, normal, tangent, binormal, uv1, uv2, ibone
@@ -438,18 +426,14 @@ class scm_mesh :
         print('Writing Mesh...')
 
         scm = open(filename, 'wb')
-
-
-        #headerstruct = '12L' #Deprecation warning L and mistyrious binary output
-
-        headerstruct = '4s11I'
+        
+        headerstruct = '4s11L'
         headersize = struct.calcsize(headerstruct)
 
-        #marker = 'MODL'
         marker = b'MODL'
         version = 5
         boneoffset = 0
-        bonecount = 0
+        usedBoneCount = 0
         vertoffset = 0
         extravertoffset = 0
         vertcount = len(self.vertices)
@@ -463,7 +447,7 @@ class scm_mesh :
 
         # Write dummy header
         header = struct.pack(headerstruct + '',
-            marker, version, boneoffset, bonecount, vertoffset,
+            marker, version, boneoffset, usedBoneCount, vertoffset,
             extravertoffset, vertcount, indexoffset, indexcount,
             infooffset, infosize, totalbonecount)
 
@@ -478,7 +462,6 @@ class scm_mesh :
             name = bone.name
             buffer = struct.pack(str(len(name) + 1)+'s', bytearray(name,'ascii'))
             scm.write(buffer)
-            #Log(buffer)
 
         print("[/bone struckt]")
 
@@ -487,8 +470,8 @@ class scm_mesh :
 
         for bone in self.bones:
             bone.save(scm)
-            # if bone.used == True:
-            bonecount = bonecount + 1
+            if bone.used == True:
+                usedBoneCount = usedBoneCount + 1
 
 
 
@@ -506,11 +489,10 @@ class scm_mesh :
 
         for f in range(len(self.faces)):
             face = struct.pack('3H', self.faces[f][0], self.faces[f][1], self.faces[f][2])
-            #face = struct.pack('3h', self.faces[f][0], self.faces[f][1], self.faces[f][2])
             scm.write(face)
 
 
-        print( "Bones: %d, Vertices: %d, Faces: %d; \n" % (bonecount, len(self.vertices), len(self.faces)))
+        print( "Bones: %d, Vertices: %d, Faces: %d; \n" % (usedBoneCount, len(self.vertices), len(self.faces)))
 
         #Write Info
         if len(self.info) > 0:
@@ -529,7 +511,7 @@ class scm_mesh :
         scm.seek(0, 0)
 
         header = struct.pack(headerstruct,
-            marker, version, boneoffset, bonecount, vertoffset,
+            marker, version, boneoffset, usedBoneCount, vertoffset,
             extravertoffset, vertcount, indexoffset, indexcount,
             infooffset, infosize, totalbonecount)
 
@@ -701,87 +683,138 @@ def pad_file(file, s4comment):
 
 
 
-#
+
 ######################################################
-
-
-
-# Helper method for iterating through the bone tree
-def iterate_bones(mesh, bone, parent = None, scm_parent_index = -1):
-
-    global MArmatureWorld
-    global BONES
-    global xy_to_xz_transform
-    global keyedBones
     
-    keyed = False
+# This places all the bones in a list, with their position in the list being the bone index.
+# because SCM vertices only support up to 256 bones, we need to sort the IDs such that used bones are listed first.
+def createBoneList(mesh_objs, arm, supcom_mesh):
+    #we need to store the bones in a specific order, and we also need to store their parent index values
+    #to do this, we store them in the order we want first, and then assign indeces after that.
+    
+    #first make a dictionary containing all used bones
+    BonesWithVertices = {}
+    
+    for mesh_obj in mesh_objs:
+        for i, vertex in enumerate(mesh_obj.data.vertices):
+            for g in vertex.groups:
+                vgName =  mesh_obj.vertex_groups[g.group].name
+                if g.weight > 0.5 and not vgName in BonesWithVertices :
+                    BonesWithVertices[vgName] = arm.bones[vgName]
+                    break
+    
+    #extend the used bones dictionary to include all parents
+    BonesWithVertices = getAllBoneParents(BonesWithVertices)
+    
+    SortedBones = []
+    BoneSortQueue = []
+    BonesWithAnimKeys = {}
+    numroots = 0
+    global keyedBones
+    for bone in arm.bones.values():
+        if (bone.parent == None):
+            #count the root bones, there is only supposed to be one
+            numroots += 1
+            BoneSortQueue.insert(0,bone)
+        if bone.name in keyedBones:
+            #flag bones which hold animation data
+            BonesWithAnimKeys[bone.name] = bone
+    
+    #extend the keyed bones dictionary to include all parents
+    #TODO:check if this is needed
+    BonesWithAnimKeys = getAllBoneParents(BonesWithAnimKeys)
 
-
-    if (parent != None and bone.parent.name != parent.name):
-        my_popup("Error: Invalid parenting in bone %s multiple parents %s %s ?!" % (bone.name, parent.name, bone.parent.name))
-        print("Error: Invalid parenting in bone %s multiple parents %s %s ?!" % (bone.name, parent.name, bone.parent.name))
-        #print( "Invalid parenting in bone", bone.name," and parent ", parent.name)
+    if numroots > 1:
+        my_popup("Error: there are multiple root bones -> check you bone relations!")
+        print("Error: there are multiple root bones -> check you bone relations!")
         return
+    
+    SortedBones = sortBonesList(BoneSortQueue, BonesWithVertices)
+    
+    #process the root bone, which has no parent
+    processSingleBone(supcom_mesh,SortedBones[0],-1,BonesWithAnimKeys)
+    #assign indeces to the remaining bones and process them
+    for index in range(1,len(SortedBones)):
+        #assign parent index
+        bone = SortedBones[index]
+        parentIndex = SortedBones.index(bone.parent)
+        processSingleBone(supcom_mesh,SortedBones[index],parentIndex,BonesWithAnimKeys)
+        
+#when given a dictionary of bones, returns that dictionary with all their parents in there as well
+def getAllBoneParents(InitialBones):
+    counter = 1
+    BoneQueue = [] #a temporary list, which allows us to append bones with vertices first.
+    for bone in InitialBones.values():
+        BoneQueue.append(bone)
+    NewBones = {}
+    while len(BoneQueue) > 0 and counter < 100: #we process the bones in order, parents first, children last.
+        ParentBonesList = []
+        for bone in BoneQueue:
+            NewBones[bone.name] = bone
+            if bone.parent and not bone.parent.name in InitialBones:
+                ParentBonesList.append(bone.parent)
+        BoneQueue = [] #clear the list
+        BoneQueue.extend(ParentBonesList)
+        counter +=1 #failsafe for infinite looping
+        
+    return NewBones
+    
+def sortBonesList(BoneSortQueue, BonesWithVertices):
+    counter = 1
+    UsedBonesList = [] #a temporary list, which allows us to append bones with vertices first.
+    UnusedBonesList = []
+    while len(BoneSortQueue) > 0 and counter < 500: #we process the bones in order, parents first, children last.
+        ChildrenBonesList = []
+        for bone in BoneSortQueue:
+            if bone.name in BonesWithVertices:
+                UsedBonesList.append(bone)
+            else:
+                UnusedBonesList.append(bone)
+            
+            if (bone.children != None):
+                for child in bone.children:
+                    ChildrenBonesList.append(child)
+        
+        BoneSortQueue = [] #clear the list
+        BoneSortQueue.extend(ChildrenBonesList)
+        counter +=1 #failsafe for infinite looping
+    return UsedBonesList + UnusedBonesList
 
+def processSingleBone(mesh, bone, parentBoneIndex,BonesWithAnimKeys):
     b_rest_pose     = Matrix(([0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]))
     b_rest_pose_inv = Matrix(([0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]))
     b_rotation        = Quaternion(( 0,0,0,0 ))
     b_position        = Vector(( 0,0,0 ))
-    b_index = len(mesh.bones)
 
-
-    #print ("iterate bone",bone.name)
     bone_matrix = bone.matrix_local.transposed()
-    #print ("bone_matrix",bone_matrix)
     
     # Calculate the inverse rest pose for the bone #instead bonearmmat*worldmat = Matrix['BONESPACE']
     b_rest_pose     = bone_matrix @ MArmatureWorld
     b_rest_pose_inv = ( b_rest_pose @ xy_to_xz_transform ).inverted()
 
-    if (parent == None):
+    if (bone.parent == None):
         rel_mat = b_rest_pose @ xy_to_xz_transform
         #root pos is the same as the rest-pose
     else:
-        parent_matrix_inv = Matrix( parent.matrix_local.transposed() ).inverted()
+        parent_matrix_inv = Matrix( bone.parent.matrix_local.transposed() ).inverted()
         rel_mat = Matrix(bone_matrix @ parent_matrix_inv)
         # must be BM * PMI in that order
         # do not use an extra (absolute) extra rotation here, cause this is only relative
     
-    #print ("rel_mat",rel_mat)
-    
     #  Position & Rotation   relative to parent (if there is a parent)
-    b_rotation = rel_mat.transposed().to_quaternion()#.normalize()
-    
-    #print ("b_rotation",b_rotation)
+    b_rotation = rel_mat.transposed().to_quaternion()
     
     #row 3, cols 0,1,2 indicate position
     b_position = rel_mat.transposed().to_translation()
     
-    #print ("b_position",b_position)
+            
+    sc_bone = scm_bone( bone.name, b_rest_pose_inv, b_rotation, b_position, parentBoneIndex )
     
-    #def __init__(self, name, rest_pose_inv, rotation, position, parent_index):
-    sc_bone = scm_bone( bone.name, b_rest_pose_inv, b_rotation, b_position, scm_parent_index )
-
+    if bone.name in BonesWithAnimKeys:
+        sc_bone.keyed = True
+    
     BONES.append(sc_bone)
     mesh.bones.append(sc_bone)
-    
-    #print ("name",bone.name)
-    #print ("keys",bone.keys())
-    #print ("items",bone.items())
-    #print ("values",bone.values())
-    #print ("values",bone.animation_data)
-    
-    if bone.name in keyedBones:
-        keyed = True
-    
-    # recursive call for all children
-    if (bone.children != None):
-        for child in bone.children:
-            keyed = iterate_bones( mesh, child, bone, b_index ) or keyed
-    
-    sc_bone.keyed = keyed
-    
-    return keyed
 
 
 def make_scm(arm_obj):
@@ -803,18 +836,13 @@ def make_scm(arm_obj):
     pb_length = 0
     mesh_objs = []
     for obj in scn.objects:
-        #print ("obj",obj)
-        #print ("parent",obj.parent)
-        #print ("type",obj.type)
         if obj.parent == arm_obj and obj.type == 'MESH':
             #calculate progbar length
             obj.data.calc_loop_triangles()
             #obj.data.update (calc_tessface=True)
             
             bmesh_data = obj.data
-            #print ("data",obj.data)
             pb_length += len(bmesh_data.loop_triangles)
-            #print("nb tessfaces",len(bmesh_data.tessfaces))
             mesh_objs.append(obj)
 
 
@@ -822,21 +850,8 @@ def make_scm(arm_obj):
 
     # Create SCM Mesh
     supcom_mesh = scm_mesh()
-
-    # Traverse the bone tree and check if there is one root bone
-    numroots = 0
     
-    for bone in arm.bones.values():
-        if (bone.parent == None):
-            numroots += 1
-            iterate_bones(supcom_mesh, bone)
-    #print ("numroots",numroots)
-    if numroots > 1:
-        my_popup("Error: there are multiple root bones -> check you bone relations!")
-        print("Error: there are multiple root bones -> check you bone relations!")
-        return
-
-
+    createBoneList(mesh_objs, arm, supcom_mesh)
 
     # Process all the meshes
     for mesh_obj in mesh_objs:
@@ -864,13 +879,11 @@ def make_scm(arm_obj):
         uvData = bmesh_data.uv_layers.active.data[:]
 
         for face in bmesh_data.loop_triangles:
-            #print ("face",face)
             #ProgBarFaces.do()
 
             vertList = []
 
             for i in range(len(face.vertices)):
-                #print('vertNum',i)
                 vert = face.vertices[i]
                 vertex = bmesh_data.vertices[vert]
 
@@ -884,7 +897,6 @@ def make_scm(arm_obj):
                 v_boneIndex[0] = -1
 
                 for vgroup in vertex.groups:
-                    #print ("vgroup",vgroup.group, vgroup.weight,mesh_obj.vertex_groups[vgroup.group].name)
                     if vgroup.weight > 0.5:
                         bonename = mesh_obj.vertex_groups[vgroup.group].name
                         for b in range(len(supcom_mesh.bones)):
@@ -1027,19 +1039,12 @@ def make_sca(arm_obj, action):
     supcom_mesh = scm_mesh()
     numroots = 0
     if len(BONES) == 0:
-        for bone in arm_obj.data.bones.values():
-            if (bone.parent == None):
-                numroots += 1
-                iterate_bones(supcom_mesh, bone)
-    #print ("numroots",numroots)
-    if numroots > 1:
-        my_popup("there are multiple root bones -> check you bone relations!")
-        print("Error: there are multiple root bones -> check you bone relations!")
-        return
+        mesh_objs = []
+        for obj in layer.objects:
+            if obj.parent == arm_obj and obj.type == 'MESH':
+                mesh_objs.append(obj)
+        createBoneList(mesh_objs, arm_obj.data, supcom_mesh)
 
-    #print ("BONES")
-    #for b in BONES:
-    #    print (b.name,b.parent_index)
         
     BONES2 = [b for b in BONES if b.keyed]
     
@@ -1054,62 +1059,33 @@ def make_sca(arm_obj, action):
                     b.parent_index = i
     
     BONES = [b for b in BONES2]
-    #print ("BONES2")
-    #for b in BONES:
-    #    print (b.name,b.parent_index)
 
     # Add bone names & links
     for bone in BONES:
         animation.bonenames.append(bone.name)
         animation.bonelinks.append(bone.parent_index)
-        #print('adding bone: %s with parent %d ' % (bone.name, bone.parent_index))
 
     #ProgBarAnimation = ProgressBar( "Exp: Anim", endframe)
 
     # Add frames
     for frame_counter in range(endframe):
-        #print('adding frame %d of %d' % (frame_counter, endframe))
         #ProgBarAnimation.do()
 
         frame = sca_frame(animation)
 
         context.scene.frame_set(frame_counter+1)
 
-
-        #if frame_counter == 0 or frame_counter == 100:
-        #    print ("frame",frame_counter)
-
         POSED_BONES = {}
         for posebone in arm_obj.pose.bones:
             POSED_BONES[posebone.name] = posebone.matrix
 
         for bone in BONES:
-            #if frame_counter == 0 or frame_counter == 100:
-            #    print ("bone",bone.name)
             pose_bone_matrix = POSED_BONES[bone.name].transposed()
-
-            #if frame_counter == 0 or frame_counter == 100:
-            #    print ("initMatrix",pose_bone_matrix)
-
-            #pose_bone_matrix.transpose()
-
-            #if frame_counter == 0 or frame_counter == 100:
-            #    print ("initMatrix T",pose_bone_matrix)
-
-            #if frame_counter == 0 or frame_counter == 100:
-            #    print ("MArmatureWorld",MArmatureWorld)
 
             if (bone.parent_index == -1):
                 rel_mat = (pose_bone_matrix @ MArmatureWorld) @ xy_to_xz_transform
             else:
                 rel_mat = pose_bone_matrix @ POSED_BONES[BONES[bone.parent_index].name].transposed().inverted()
-                #if frame_counter == 0 or frame_counter == 100:
-                #    print ("parentMatrix",POSED_BONES[BONES[bone.parent_index].name])
-
-            #if frame_counter == 0 or frame_counter == 100:
-            #    print ("finMatrix T",rel_mat)
-            #    print ("rotation", rel_mat.transposed().to_quaternion().normalized())
-            #    print ("position",rel_mat.transposed().to_translation())
 
             #rel_mat.transpose()
             rotation = rel_mat.transposed().to_quaternion().normalized()
@@ -1325,15 +1301,6 @@ def unregister():  # note how unregistering is done in reverse
     bpy.types.TOPBAR_MT_file_export.remove(menu_func)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-# def register():
-    # #print("REGISTER")
-    # bpy.utils.register_module(__name__)
-    # bpy.types.INFO_MT_file_export.append(menu_func)
-
-# def unregister():
-    # #print("UNREGISTER")
-    # bpy.utils.unregister_module(__name__)
-    # bpy.types.INFO_MT_file_export.remove(menu_func)
 
 if __name__ == "__main__":
     unregister()
