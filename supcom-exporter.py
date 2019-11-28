@@ -41,6 +41,8 @@
 #               made the scm export several times faster, especially on large models, where the speedup is from minutes to seconds
 # 0.5.4  2019-11-23 [e]Exotic_Retard
 #               Fixed support for many bones in the model - now up to 256 linked and 256^2 empty bones
+# 0.5.5  2019-11-28 [e]Exotic_Retard
+#               Fixed error handling for vertices with no bones, and also improved it so all such vertices are selected
 #
 #
 # Todo
@@ -58,9 +60,9 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter 0.5.4",
+    "name": "Supcom Exporter 0.5.5",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,4),
+    "version": (0,5,5),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
@@ -855,11 +857,13 @@ def make_scm(arm_obj):
 
     # Process all the meshes
     for mesh_obj in mesh_objs:
-
+        #create lists for storing vertices with errors
+        verticesWithoutBones = []
+        verticesWithoutUV = [] #not yet used
+            
         mesh_obj.data.calc_loop_triangles()
         #mesh_obj.data.update (calc_tessface=True)
         bmesh_data = mesh_obj.data
-        
         # Build lookup dictionary for edge keys to edges
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
@@ -907,28 +911,10 @@ def make_scm(arm_obj):
                                 break
 
                 if (v_boneIndex[0] == -1):
+                    verticesWithoutBones.append( vert )
                     v_boneIndex[0] = 0
-
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    bpy.ops.object.select_all(action='DESELECT')
-                    
-                    #mesh_obj.select=True
-                    mesh_obj.select_set(True)
-                    bpy.context.scene.objects.active = mesh_obj
-                    
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    bpy.ops.mesh.select_all(action="DESELECT")
-                    bpy.context.tool_settings.mesh_select_mode[0] = True
-                    
-                    #On ne peut sélectionner les vertices qu'en object mode (apparemment, on bosse sur une copie)
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    #bmesh_data.vertices[vert].select = True
-                    bmesh_data.vertices[vert].select_set(True)
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    
-                    my_popup("Error: Vertice without Bone Influence in %s. (Selected) " % (mesh_name))
-                    print("Error: Vertice without Bone Influence in %s. (Selected) " % (mesh_name))
-                    return
+                    print("bone with no index detected: ",vert)
+                
                 v_pos = Vector( vertex.co @ (MatrixMesh @ xy_to_xz_transform))
 
                 v_nor = vertex.normal @ (MatrixMesh @ xy_to_xz_transform)
@@ -967,8 +953,9 @@ def make_scm(arm_obj):
                         #bmesh_data.vertices[vert].select = True
                         bmesh_data.vertices[vert].select_set(True)
                         
-                        
+                    
                     bpy.ops.object.mode_set(mode='EDIT')
+                    
                     
                     my_popup("Error: Face %d is not a triangle (selected)" % i)
                     print("Error: Face %d is not a triangle (selected)" % i)
@@ -1000,6 +987,31 @@ def make_scm(arm_obj):
 
         bpy.ops.object.mode_set(mode='OBJECT')
         bpy.ops.object.select_all(action='DESELECT')
+        
+        
+        #error handling
+        if len(verticesWithoutBones) > 0:
+            bpy.ops.object.mode_set(mode='OBJECT')
+            bpy.ops.object.select_all(action='DESELECT')
+            
+            bpy.context.view_layer.objects.active = mesh_obj
+            mesh_obj.select_set(True)
+            
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.context.tool_settings.mesh_select_mode[0] = True
+            
+            #apparently we can only select vertices in object mode which seems totally bizarre
+            bpy.ops.object.mode_set(mode='OBJECT')
+            for vertID in verticesWithoutBones :
+                bmesh_data.vertices[vertID].select = True
+            
+            bpy.context.view_layer.update() #update the view so the selected stuff is there.
+                    
+            bpy.ops.object.mode_set(mode='EDIT')
+            my_popup("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
+            print("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
+            return
 
     return supcom_mesh
 
