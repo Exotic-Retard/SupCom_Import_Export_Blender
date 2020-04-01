@@ -43,6 +43,9 @@
 #               Fixed support for many bones in the model - now up to 256 linked and 256^2 empty bones
 # 0.5.5  2019-11-28 [e]Exotic_Retard
 #               Fixed error handling for vertices with no bones, and also improved it so all such vertices are selected
+# 0.5.6  2020-04-01 [e]Exotic_Retard
+#               Added support for Quads, and added error handling for Ngons, which are now all highlighted if you have them
+#               Sharp edges no longer need to be split in order to export them correctly. support for custom vertex normals is not there currently.
 #
 #
 # Todo
@@ -60,9 +63,9 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter 0.5.5",
+    "name": "Supcom Exporter 0.5.6",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,5),
+    "version": (0,5,6),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
@@ -284,17 +287,17 @@ class qFace :
         def __init__(self):
             self.vertex_cont = []
 
-        def addVert(self, vertex):
+        def addVertexCount(self, vertex):
             self.vertex_cont.extend( vertex )
 
         def addToMesh(self, mesh):
 
             face1 = Face()
-            face1.addVert([ self.vertex_cont[0], self.vertex_cont[1], self.vertex_cont[2] ])
+            face1.addVertexCount([ self.vertex_cont[0], self.vertex_cont[1], self.vertex_cont[2] ])
             face1.CalcTB()
 
             face2 = Face()
-            face2.addVert([ self.vertex_cont[2], self.vertex_cont[3], self.vertex_cont[0] ])
+            face2.addVertexCount([ self.vertex_cont[2], self.vertex_cont[3], self.vertex_cont[0] ])
             face2.CalcTB()
 
             mesh.addQFace(face1, face2)
@@ -309,7 +312,7 @@ class Face :
     def __init__(self):
         self.vertex_cont = []
 
-    def addVert(self, vertex):
+    def addVertexCount(self, vertex):
         self.vertex_cont.extend(vertex)
 
     #now contains 3 vertexes calculate bi and ta and add to mesh
@@ -354,6 +357,7 @@ class Face :
             self.vertex_cont[ind].tangent = tangent
             self.vertex_cont[ind].binormal =  binormal
 
+    #todo:delet this
     def addToMesh( self, mesh ) :
         self.CalcTB()
         mesh.addFace( self )
@@ -373,20 +377,26 @@ class scm_mesh :
         self.smoothEdgeKeys = {}
         self.faces = []
         self.info = []
-        self.vertcounter = 0
+        #self.vertcounter = 0
 
     def addVert( self, nvert ):
         if VERTEX_OPTIMIZE :
+            #print('adding vertex ', self.vertcounter)
             vertind = len(self.vertices)
             
             for edgekey in nvert.smoothEdges :
                 if edgekey in self.smoothEdgeKeys :
                     for storedVertInd in self.smoothEdgeKeys[edgekey] :
                         vert = self.vertices[storedVertInd]
-                        if nvert.uv1 == vert.uv1 and nvert.position == vert.position :
-                            vertind = storedVertInd #change the vertex index to the one we are merging to
-                            self.mergeVertices(vert,nvert,vertind)
-                            
+                        if nvert.position == vert.position : #make the vertices colinear
+                            nvert = self.mergeVertexNormals(vert,nvert)
+                            #print('making vertices colinear')
+                            if nvert.uv1 == vert.uv1  : #merge the vertex down instead of adding a new one
+                                vertind = storedVertInd #change the vertex index to the one we are merging to
+                                #self.mergeVertices(vert,nvert,vertind)
+                                #print('merging vertex')
+                                self.vertices[vertind] = nvert
+            
             #update the edge keys in the dictionary
             for edgeKey in nvert.smoothEdges :
                 if not edgeKey in self.smoothEdgeKeys :
@@ -402,11 +412,16 @@ class scm_mesh :
             self.vertices.append(nvert)
             return len(self.vertices)-1
 
+    def mergeVertexNormals( self, vert, nvert ):
+        nvert.tangent = Vector( (vert.tangent + nvert.tangent) )
+        nvert.binormal = Vector( (vert.binormal + nvert.binormal) )
+        nvert.normal = Vector( (vert.normal + nvert.normal) )
+        return nvert
+        
     def mergeVertices( self, vert, nvert, vertind ):
         vert.tangent = Vector( (vert.tangent + nvert.tangent) )
         vert.binormal = Vector( (vert.binormal + nvert.binormal) )
         vert.normal = Vector( (vert.normal + nvert.normal) )
-
         self.vertices[vertind] = vert
 
     def addFace( self, face ):
@@ -859,19 +874,18 @@ def make_scm(arm_obj):
     for mesh_obj in mesh_objs:
         #create lists for storing vertices with errors
         verticesWithoutBones = []
+        nGonFaces = []
         verticesWithoutUV = [] #not yet used
             
         mesh_obj.data.calc_loop_triangles()
+        mesh_obj.data.calc_normals_split()
         #mesh_obj.data.update (calc_tessface=True)
         bmesh_data = mesh_obj.data
-        # Build lookup dictionary for edge keys to edges
-        edges = bmesh_data.edges
-        face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
         
         # Build lookup dictionary for edge keys to edges
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
-
+        #print(face_edge_map)
         #if not bmesh_data.tessface_uv_textures :
         if not bmesh_data.uv_layers :
             my_popup("Mesh has no texture values -> Please set your UV!")
@@ -881,13 +895,19 @@ def make_scm(arm_obj):
         MatrixMesh = Matrix(mesh_obj.matrix_world)
         mesh_name = mesh_obj.name
         uvData = bmesh_data.uv_layers.active.data[:]
-
-        for face in bmesh_data.loop_triangles:
+        
+        TotalVertsProcessed = 0
+        
+        for face in bmesh_data.polygons:
             #ProgBarFaces.do()
 
             vertList = []
-
+            if len(face.vertices) > 4 :
+                nGonFaces.append( face.index )
+                continue
+            
             for i in range(len(face.vertices)):
+                TotalVertsProcessed += 1
                 vert = face.vertices[i]
                 vertex = bmesh_data.vertices[vert]
 
@@ -917,49 +937,17 @@ def make_scm(arm_obj):
                 
                 v_pos = Vector( vertex.co @ (MatrixMesh @ xy_to_xz_transform))
 
-                v_nor = vertex.normal @ (MatrixMesh @ xy_to_xz_transform)
-
+                #TODO: make this be the actual vertex normal instead of whatever it wants it to be.
+                #v_nor = vertex.normal @ (MatrixMesh @ xy_to_xz_transform)
+                v_nor = face.normal @ (MatrixMesh @ xy_to_xz_transform) #we use the face normal with the assumption that it is hard, doesnt support custom normals for now
                 #needed cause supcom scans an image in the opposite vertical direction or something?.
-
-                #uvData = bmesh_data.uv_layers.active.data[:] #TODO:put this outside the vertex loop
                 
                 my_uv = None
                 start = bmesh_data.polygons[face.index].loop_start
                 end = start + bmesh_data.polygons[face.index].loop_total
                 uvtuple = tuple(tuple(uv.uv) for uv in uvData[start:end])
+                print(uvtuple)
                 my_uv = uvtuple[i]
-                
-                #TODO:make this error detector work again
-                if my_uv is None :
-                    i = face.index
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    bpy.ops.object.select_all(action='DESELECT')
-                    
-                    #mesh_obj.select=True
-                    mesh_obj.select_set(True)
-                    bpy.context.scene.objects.active = mesh_obj
-                    
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    bpy.ops.mesh.select_all(action="DESELECT")
-                    bpy.context.tool_settings.mesh_select_mode[0] = True
-                    
-                    #On ne peut sélectionner les vertices qu'en object mode (apparemment, on bosse sur une copie)
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                    mesh_obj.data.calc_loop_triangles()
-                    #mesh_obj.data.update (calc_tessface=True)
-                    #on va prendre tous les points de la face, et les sélectionner.
-                    for i in range(len(face.vertices)):
-                        vert = face.vertices[i]
-                        #bmesh_data.vertices[vert].select = True
-                        bmesh_data.vertices[vert].select_set(True)
-                        
-                    
-                    bpy.ops.object.mode_set(mode='EDIT')
-                    
-                    
-                    my_popup("Error: Face %d is not a triangle (selected)" % i)
-                    print("Error: Face %d is not a triangle (selected)" % i)
-                    return
                 
                 v_uv1 = Vector((my_uv[0], 1.0 - my_uv[1]))
                 
@@ -967,7 +955,9 @@ def make_scm(arm_obj):
                 v_smoothEdgeList = []
                 
                 for ek in face.edge_keys :
+                    #print(ek)
                     edge = face_edge_map[ek]
+                    #print(edge)
                     if not edge.use_edge_sharp :
                         #print ("sharp edge found")
                         for sharpVert in edge.vertices :
@@ -982,42 +972,58 @@ def make_scm(arm_obj):
             else:
                 newFace = Face()
 
-            newFace.addVert(vertList)
+            newFace.addVertexCount(vertList)
             newFace.addToMesh(supcom_mesh)
-
+        
+        print('total vertices processed: ', TotalVertsProcessed)
         bpy.ops.object.mode_set(mode='OBJECT')
         bpy.ops.object.select_all(action='DESELECT')
         
         
         #error handling
         if len(verticesWithoutBones) > 0:
-            bpy.ops.object.mode_set(mode='OBJECT')
-            bpy.ops.object.select_all(action='DESELECT')
-            
-            bpy.context.view_layer.objects.active = mesh_obj
-            mesh_obj.select_set(True)
-            
-            bpy.ops.object.mode_set(mode='EDIT')
-            bpy.ops.mesh.select_all(action="DESELECT")
-            bpy.context.tool_settings.mesh_select_mode[0] = True
-            
-            #apparently we can only select vertices in object mode which seems totally bizarre
-            bpy.ops.object.mode_set(mode='OBJECT')
-            for vertID in verticesWithoutBones :
-                bmesh_data.vertices[vertID].select = True
-            
-            bpy.context.view_layer.update() #update the view so the selected stuff is there.
-                    
-            bpy.ops.object.mode_set(mode='EDIT')
+            selectVerticesForError(verticesWithoutBones, "vertices", mesh_obj)
             my_popup("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
             print("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
+            return
+            
+        #error handling
+        if len(nGonFaces) > 0:
+            selectVerticesForError(nGonFaces, "polygons", mesh_obj)
+            my_popup("Error: %s Faces are Ngons in Mesh. They are now selected. (Ngons are faces with 5 or more edges) " % (len(nGonFaces)) )
+            print("Error: %s Faces are Ngons in Mesh. They are now selected. (Ngons are faces with 5 or more edges) " % (len(nGonFaces)) )
             return
 
     return supcom_mesh
 
+def selectVerticesForError(ObjectList, ObjectType, mesh_obj):
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.ops.object.select_all(action='DESELECT')
+
+    bpy.context.view_layer.objects.active = mesh_obj
+    mesh_obj.select_set(True)
+
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bpy.context.tool_settings.mesh_select_mode[0] = True
+
+    #apparently we can only select vertices in object mode which seems totally bizarre
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    for vertID in ObjectList :
+        #mesh_obj.data.vertices[vertID].select = True
+        mesh_obj.data["polygons"][vertID].select = True
+        #mesh_obj.data[ObjectType][vertID].select = True
+
+    bpy.context.view_layer.update() #update the view so the selected stuff is there.
+            
+    bpy.ops.object.mode_set(mode='EDIT')
+
 
 def getBoneNameAndAction(path):
-
+    if not path.find('"') or not path.find('.'):
+        print ("Could not find correct format for animation data path, skipping this key: ",path)
+        return ['false','false']
     return [path.split('"')[1] , path.split('.')[-1]]
 
 def make_sca(arm_obj, action):
@@ -1033,7 +1039,9 @@ def make_sca(arm_obj, action):
     #get textInfo for present keys in armature
     if action:
         for fc in action.fcurves:
+            print ("data_path",fc.data_path)
             keyParsed = getBoneNameAndAction(fc.data_path)
+            print ("keyParsed",keyParsed)
             if (keyParsed[1] in ["scale","rotation_quaternion","location"]):
                 keyedBones.add(keyParsed[0])
             
@@ -1216,13 +1224,13 @@ class EXPORT_OT_scm(bpy.types.Operator):
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
 
-    #filepath = StringProperty(
+    #filepath : StringProperty(
     #        subtype='FILE_PATH',
     #        )
-    directory = StringProperty(
+    directory : StringProperty(
             subtype='DIR_PATH',
             )
-    filter_glob = StringProperty(
+    filter_glob : StringProperty(
             default="*.scm",
             options={'HIDDEN'},
             )
@@ -1259,13 +1267,13 @@ class EXPORT_OT_sca(bpy.types.Operator):
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
 
-    #filepath = StringProperty(
+    #filepath : StringProperty(
     #        subtype='FILE_PATH',
     #        )
-    directory = StringProperty(
+    directory : StringProperty(
             subtype='DIR_PATH',
             )
-    filter_glob = StringProperty(
+    filter_glob : StringProperty(
             default="*.sca",
             options={'HIDDEN'},
             )
