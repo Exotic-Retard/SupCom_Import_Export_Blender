@@ -381,7 +381,6 @@ class scm_mesh :
 
     def addVert( self, nvert ):
         if VERTEX_OPTIMIZE :
-            #print('adding vertex ', self.vertcounter)
             vertind = len(self.vertices)
             
             for edgekey in nvert.smoothEdges :
@@ -390,12 +389,10 @@ class scm_mesh :
                         vert = self.vertices[storedVertInd]
                         if nvert.position == vert.position : #make the vertices colinear
                             nvert = self.mergeVertexNormals(vert,nvert)
-                            #print('making vertices colinear')
                             if nvert.uv1 == vert.uv1  : #merge the vertex down instead of adding a new one
                                 vertind = storedVertInd #change the vertex index to the one we are merging to
-                                #self.mergeVertices(vert,nvert,vertind)
-                                #print('merging vertex')
                                 self.vertices[vertind] = nvert
+            
             
             #update the edge keys in the dictionary
             for edgeKey in nvert.smoothEdges :
@@ -403,7 +400,7 @@ class scm_mesh :
                     self.smoothEdgeKeys[edgeKey] = {}
                 self.smoothEdgeKeys[edgeKey][vertind] = True
             
-            #if no merging was done, append the entry
+            #if we havent merged anything then add a new vertex
             if vertind == len(self.vertices) :
                 self.vertices.append( nvert )
             
@@ -418,6 +415,7 @@ class scm_mesh :
         nvert.normal = Vector( (vert.normal + nvert.normal) )
         return nvert
         
+    #TODO: delet this
     def mergeVertices( self, vert, nvert, vertind ):
         vert.tangent = Vector( (vert.tangent + nvert.tangent) )
         vert.binormal = Vector( (vert.binormal + nvert.binormal) )
@@ -879,14 +877,11 @@ def make_scm(arm_obj):
             
         mesh_obj.data.calc_loop_triangles()
         mesh_obj.data.calc_normals_split()
-        #mesh_obj.data.update (calc_tessface=True)
         bmesh_data = mesh_obj.data
         
         # Build lookup dictionary for edge keys to edges
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
-        #print(face_edge_map)
-        #if not bmesh_data.tessface_uv_textures :
         if not bmesh_data.uv_layers :
             my_popup("Mesh has no texture values -> Please set your UV!")
             print("Mesh has no texture values -> Please set your UV!")
@@ -946,7 +941,6 @@ def make_scm(arm_obj):
                 start = bmesh_data.polygons[face.index].loop_start
                 end = start + bmesh_data.polygons[face.index].loop_total
                 uvtuple = tuple(tuple(uv.uv) for uv in uvData[start:end])
-                print(uvtuple)
                 my_uv = uvtuple[i]
                 
                 v_uv1 = Vector((my_uv[0], 1.0 - my_uv[1]))
@@ -955,13 +949,9 @@ def make_scm(arm_obj):
                 v_smoothEdgeList = []
                 
                 for ek in face.edge_keys :
-                    #print(ek)
                     edge = face_edge_map[ek]
-                    #print(edge)
                     if not edge.use_edge_sharp :
-                        #print ("sharp edge found")
                         for sharpVert in edge.vertices :
-                            #print ("vertexID", sharpVert, "value of vertex.index", vertex.index)
                             if vertex.index == sharpVert :
                                 v_smoothEdgeList.append( ek )
 

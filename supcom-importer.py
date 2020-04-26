@@ -10,6 +10,7 @@
 #   0.4.0   2014-07-13 - Adapted to Blender 2.71
 #   0.5.0   2019-08-29 - Adapted to Blender 2.80
 #   0.5.1   2019-10-13 - Added support for importing files with more vertices
+#   0.5.2   2020-04-26 - Fixed the bone replacement dialogue not working for animations, and cleaned up a bit
 #
 # Todo
 #   - Material/uv map 2
@@ -21,15 +22,16 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Importer 0.5.1",
+    "name": "Supcom Importer 0.5.2",
     "author": "dan & Brent & Oygron",
-    "version": (0,5,1),
+    "version": (0,5,2),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Imports Supcom files",
     "warning": "",
     "wiki_url": "http://forums.gaspowered.com/"
                 "viewtopic.php?t=17286",
+                #https://github.com/Exotic-Retard/SupCom_Import_Export_Blender
     "category": "Import-Export",
 }
 
@@ -122,13 +124,13 @@ def uvtex_items(self, context):
     return optionsList
 #    return [(t.name, t.name, t.name) for t in context.object.data.uv_textures]
 
-class SimpleOperator(bpy.types.Operator):
-    """Tooltip"""
-    bl_idname = "object.simple_operator"
-    bl_label = "Simple Object Operator"
+class OBJECT_OT_anim_replace_bone(bpy.types.Operator):
+    """Tooltip description"""
+    bl_idname = "object.anim_replace_bone"
+    bl_label = "Animation Replacement"
     #bl_options = {'REGISTER', 'UNDO'}
     
-    optsList = bpy.props.EnumProperty(items=[])
+    optsList : bpy.props.EnumProperty(items=[])
     
     meshBones = None
     anim = None
@@ -548,8 +550,6 @@ class sca_anim :
 
         bone = frame.bones[bone_index];
         
-        
-        
         parent_index = self.bonelinks[bone_index]
 
         # note that the pos/rot of the armature_bones are still in relative supcom coordinates.
@@ -567,12 +567,6 @@ class sca_anim :
         pose_rel_matrix.resize_4x4()
 
         pose_rel_matrix.transpose()
-
-        #if frame_index == 0 or frame_index == 40:
-        #    print ('frame',frame_index)
-        #    print ('bone',bone_index)
-        #    print ('parent_index',parent_index)
-        #    print ('pose_rel0\n',pose_rel_matrix)
 
         # the translation:
         pose_rel_matrix.transpose()
@@ -728,24 +722,6 @@ def read_scm() :
     print( "=== LOADING Sup Com Model ===")
     print( "")
 
-    
-    #global counter
-    #
-    #if (counter < 10):
-    #    
-    #    bpy.utils.unregister_class(SimpleOperator)
-    #    SimpleOperator.bl_label = "toto"+str(counter)
-    #    bpy.utils.register_class(SimpleOperator)
-    #
-    #    bpy.ops.object.simple_operator('INVOKE_DEFAULT')
-    #    
-    #    return
-    #
-
-
-    #xy_to_xz_transform.resize_4x4()
-    #bpy.ops.object.mode_set(mode='OBJECT')
-    #scene = Blender.Scene.GetCurrent()
     scene = bpy.context.scene
     layer = bpy.context.view_layer
     mesh = scm_mesh()
@@ -770,15 +746,11 @@ def read_scm() :
     layer.objects.active = armObj
     #if not armObj.select_get():
     armObj.select_set(True)
-    #armObj.select = True
-    #armObj.show_x_ray = True #what does this do?
 
     bpy.ops.object.mode_set(mode='EDIT')
 
     for index in range(len(mesh.bones)):
-        #print('boneIndex',index)
         bone = mesh.bones[index]
-        #print('boneName',bone.name)
 
         blender_bone = armData.edit_bones.new(bone.name)
         
@@ -915,9 +887,7 @@ def iterate_bones(meshBones, bone, parent = None, scm_parent_index = -1):
     b_index = len(meshBones)
 
 
-    #print ("iterate bone",bone.name)
     bone_matrix = bone.matrix_local.transposed()
-    #print ("bone_matrix",bone_matrix)
     
     # Calculate the inverse rest pose for the bone #instead bonearmmat*worldmat = Matrix['BONESPACE']
     b_rest_pose     = bone_matrix @ MArmatureWorld
@@ -931,22 +901,12 @@ def iterate_bones(meshBones, bone, parent = None, scm_parent_index = -1):
         rel_mat = Matrix(bone_matrix @ parent_matrix_inv)
         # must be BM * PMI in that order
         # do not use an extra (absolute) extra rotation here, cause this is only relative
-    
-    #print ("rel_mat",rel_mat)
-    
+        
     #  Position & Rotation   relative to parent (if there is a parent)
     b_rotation = rel_mat.transposed().to_quaternion()#.normalize()
     
-    #print ("b_rotation",b_rotation)
-    
-    #row 3, cols 0,1,2 indicate position
     b_position = rel_mat.transposed().to_translation()
     
-    #print ("b_position",b_position)
-    
-    #def __init__(self, name, rest_pose_inv, rotation, position, parent_index):
-    #print ("boneReadName",bone.name)
-    #print ("b_rest_pose_inv",b_rest_pose_inv)
     sc_bone = scm_bone( bone.name, b_rest_pose_inv, b_rotation, b_position, scm_parent_index )
 
     meshBones.append(sc_bone)
@@ -1045,31 +1005,31 @@ def read_anim(mesh):
     meshBones = get_mesh_bones()
     
     objBoneNames = [rBone.name for rBone in meshBones]
-    #print (objBoneNames)
     return check_bone(meshBones,anim,objBoneNames,0)
     
-    
+#this is a mess, should be cleaned up. it unregisters an operator for each bone.
 def check_bone(meshBones,anim,objBoneNames,bone_num):
     if (bone_num < len(anim.bonenames)):
         #print("check_bone",anim.bonenames[bone_num])
         if anim.bonenames[bone_num] not in objBoneNames:
             print (anim.bonenames[bone_num],"not found")
-            bpy.utils.unregister_class(SimpleOperator)
             
-            SimpleOperator.bl_label = anim.bonenames[bone_num]+" not found, select substitute"
+            bpy.utils.unregister_class(OBJECT_OT_anim_replace_bone)
             
-            SimpleOperator.meshBones = meshBones
-            SimpleOperator.anim = anim
-            SimpleOperator.objBoneNames = objBoneNames
-            SimpleOperator.bone_num = bone_num
+            OBJECT_OT_anim_replace_bone.bl_label = anim.bonenames[bone_num]+" not found, select substitute"
+            
+            OBJECT_OT_anim_replace_bone.meshBones = meshBones
+            OBJECT_OT_anim_replace_bone.anim = anim
+            OBJECT_OT_anim_replace_bone.objBoneNames = objBoneNames
+            OBJECT_OT_anim_replace_bone.bone_num = bone_num
             
             itemList = [(b,b,b) for b in objBoneNames]
             itemList += [("_importer_Discard_","Discard","Discard")]
-            SimpleOperator.optsList = bpy.props.EnumProperty(items=itemList)
+            OBJECT_OT_anim_replace_bone.optsList = bpy.props.EnumProperty(items=itemList)
                 
-            bpy.utils.register_class(SimpleOperator)
+            bpy.utils.register_class(OBJECT_OT_anim_replace_bone)
             
-            bpy.ops.object.simple_operator('INVOKE_DEFAULT')
+            bpy.ops.object.anim_replace_bone('INVOKE_DEFAULT')
             
             return
         else:
@@ -1082,9 +1042,7 @@ def read_end_anim(meshBones,anim):
     global sca_filepath # [0] both [1] path [2] name
     #ProgBarLSCA = ProgressBar( "Imp: Frames", len(anim.frames))
     
-    #print ("post traitement",anim.bonenames)
     
-    #scene = Blender.Scene.GetCurrent()
     scene = bpy.context.scene
     context = bpy.context
 
@@ -1098,7 +1056,6 @@ def read_end_anim(meshBones,anim):
         print( "couldn't apply animation, no armature in the scene" )
         my_popup("couldn't apply animation, no armature in the scene")
         return
-    #arm_obj = armObj
 
     print( arm_obj.name)
     arm_obj.animation_data_clear()
@@ -1109,10 +1066,6 @@ def read_end_anim(meshBones,anim):
     pose = arm_obj.pose
 
     for frame_index in range(len(anim.frames)):
-        #if (frame_index == 0):
-        #    print ("frame",frame_index)
-        #print ("frame",frame_index)
-        #ProgBarLSCA.do()
 
         context.scene.frame_set(frame_index + 1)
         frame = anim.frames[frame_index]
@@ -1135,10 +1088,6 @@ def read_end_anim(meshBones,anim):
                     continue
 
                 anim_bone = frame.bones[b]
-                #if (frame_index == 0):
-                #    print("matrix",anim_bone.pose_matrix)
-                #    print("posFin",anim_bone.pose_pos)
-                #    print("rotFin",anim_bone.pose_rot)
 
                 pose_bone.location = anim_bone.pose_pos
                 pose_bone.rotation_quaternion = anim_bone.pose_rot
@@ -1148,14 +1097,9 @@ def read_end_anim(meshBones,anim):
                 pose_bone.keyframe_insert("rotation_quaternion")
                 pose_bone.keyframe_insert("scale")
 
-    #Blender.Set("curframe", 1)
     context.scene.frame_set(1)
 
-    #scene = Blender.Scene.GetCurrent()
-    #context = scene.getRenderingContext()
-
     context.scene.frame_end = len(anim.frames)
-    #bpy.context.scene.update()
     bpy.context.view_layer.update()
 
     print( "=== COMPLETE ===")
@@ -1171,27 +1115,20 @@ class IMPORT_OT_scm(bpy.types.Operator):
 
     # List of operator properties, the attributes will be assigned
     # to the class instance from the operator settings before calling.
-    filepath = StringProperty(
+    filepath : StringProperty(
             subtype='FILE_PATH',
             )
-    filter_glob = StringProperty(
+    filter_glob : StringProperty(
             default="*.scm",
             options={'HIDDEN'},
             )
 
     def execute(self, context):
-        #getInputFilenamescm(self, self.filepath, self.importmesh, self.importbone, self.bDebugLogSCM,
-        #                    self.importmultiuvtextures)
         scm_filepath[0] = self.filepath
         length = len(self.filepath)
         if self.filepath[length-4:length] == ".scm" :
             scm_filepath[1], scm_filepath[2]  = os.path.split(self.filepath)
-            #self._timer = context.window_manager.event_timer_add(0.01, context.window)
-            #print("timer launched")
-            #context.window_manager.modal_handler_add(self)
             read_scm()
-            #sleep(10)
-            #return {'RUNNING_MODAL'}
             return {'FINISHED'}
             
         else:
@@ -1212,16 +1149,15 @@ class IMPORT_OT_sca(bpy.types.Operator):
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
 
-    filepath = StringProperty(
+    filepath : StringProperty(
             subtype='FILE_PATH',
             )
-    filter_glob = StringProperty(
+    filter_glob : StringProperty(
             default="*.sca",
             options={'HIDDEN'},
             )
 
     def execute(self, context):
-        #getInputFilenamesca(self,self.filepath,context)
         sca_filepath[0] = self.filepath
         length = len(self.filepath)
         if self.filepath[length-4:length] == ".sca" :
@@ -1248,9 +1184,8 @@ def menu_func(self, context):
 classes = (
     IMPORT_OT_sca,
     IMPORT_OT_scm,
+    OBJECT_OT_anim_replace_bone,
 )
-#register, unregister = bpy.utils.register_classes_factory(classes)
-
 
 def import_scm_button(self, context):
     self.layout.operator(IMPORT_OT_scm.bl_idname, text="Import SupCom Mesh", icon='TEXTURE')
@@ -1267,14 +1202,6 @@ def unregister():  # note how unregistering is done in reverse
     bpy.types.VIEW3D_MT_image_add.remove(menu_func)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
-# def register():
-    # bpy.utils.register_module(__name__)
-    # bpy.types.INFO_MT_file_import.append(menu_func)
-
-# def unregister():
-    # bpy.utils.unregister_module(__name__)
-    # bpy.types.INFO_MT_file_import.remove(menu_func)
 
 if __name__ == "__main__":
     unregister()
