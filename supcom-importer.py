@@ -211,7 +211,7 @@ class scm_bone :
 
     def load(self, file):
         #global xy_to_xz_transform
-        bonestruct = '16f3f4f4i'
+        bonestruct = '16f3f4f4l'
         buffer = file.read(struct.calcsize(bonestruct))
         readout = struct.unpack(bonestruct, buffer)
 
@@ -238,7 +238,6 @@ class scm_bone :
 
         #// Index of the bone's parent in the SCM_BoneData array
         self.parent_index = readout[24]
-        
         # Read bone name
         #oldpos = file.tell()
         #file.seek(bone[..], 0)
@@ -252,15 +251,15 @@ class scm_bone :
 
     def dump(self):
         print( 'Bone       ', self.name)
-        print( 'Position   ', self.position)
-        print( 'Rotation   ', self.rotation)
+        #print( 'Position   ', self.position)
+        #print( 'Rotation   ', self.rotation)
         print( 'Parent Idx ', self.parent_index)
         if (self.parent != 0):
             print( 'Parent     ', self.parent.name)
         else:
             print( 'Parent     <NONE>')
-        print( 'Rest Pose Inv.',self.rel_mat_inv)
-        print( 'Rest Pose',self.rel_mat)
+        #print( 'Rest Pose Inv.',self.rel_mat_inv)
+        #print( 'Rest Pose',self.rel_mat)
         #for row in range(4):
             #print( '  ', self.rest_pose_inv[row])
 
@@ -298,7 +297,6 @@ class scm_vertex :
         self.uv1 = vertex[12:14]
         self.uv2 = vertex[14:16]
         self.bone_index = vertex[16:20]
-
         return self
 
     def dump(self):

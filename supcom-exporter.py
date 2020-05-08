@@ -46,10 +46,14 @@
 # 0.5.6  2020-04-01 [e]Exotic_Retard
 #               Added support for Quads, and added error handling for Ngons, which are now all highlighted if you have them
 #               Sharp edges no longer need to be split in order to export them correctly. support for custom vertex normals is not there currently.
+# 0.5.7  2020-05-08 [e]Exotic_Retard
+#               Fixed a pretty important bug where the exporter would put the wrong number of used/weighted bones in the header if the parents of weighted bones were not weighted.
 #
 #
 # Todo
 #   - GUI improvements
+#   - fix vertex normals not being merged mathematically correctly - when more than 2 vertices share normals but less are not merged into the same one
+#   - Support use of ngons
 #   - Support for LOD exporting. Eg. not merging all meshes for an armature into one mech but rather only
 #     sub-meshes and export the top level meshes to different files.
 #   - Validation, ensure that
@@ -63,15 +67,16 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter 0.5.6",
+    "name": "Supcom Exporter 0.5.7",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,6),
+    "version": (0,5,7),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
     "warning": "",
     "wiki_url": "http://forums.gaspowered.com/"
                 "viewtopic.php?t=17286",
+                #https://github.com/Exotic-Retard/SupCom_Import_Export_Blender
     "category": "Import-Export",
 }
 
@@ -94,7 +99,7 @@ from string import *
 from struct import *
 from bpy.props import *
 
-VERSION = '5.4'
+VERSION = '5.7'
 
 ######################################################
 # User defined behaviour, Select as you need
@@ -169,7 +174,6 @@ class scm_bone :
     position = []
     parent_index = 0
     keyed = False
-    used = False
     name = ""
 
     def __init__(self, name, rest_pose_inv, rotation, position, parent_index):
@@ -366,6 +370,7 @@ class Face :
 class scm_mesh :
 
     bones = []
+    weightedBoneCount = 0
     vertices = []
     vertcounter = 0
     faces = []
@@ -373,6 +378,7 @@ class scm_mesh :
 
     def __init__(self):
         self.bones = []
+        self.weightedBoneCount = 0
         self.vertices = []
         self.smoothEdgeKeys = {}
         self.faces = []
@@ -485,11 +491,6 @@ class scm_mesh :
 
         for bone in self.bones:
             bone.save(scm)
-            if bone.used == True:
-                usedBoneCount = usedBoneCount + 1
-
-
-
 
         # Write vertices
         vertoffset = pad_file(scm, b'VTXL')
@@ -507,7 +508,7 @@ class scm_mesh :
             scm.write(face)
 
 
-        print( "Bones: %d, Vertices: %d, Faces: %d; \n" % (usedBoneCount, len(self.vertices), len(self.faces)))
+        print( "Weighted Bones: %d, Total Bones: %d, Vertices: %d, Faces: %d; \n" % (self.weightedBoneCount, totalbonecount, len(self.vertices), len(self.faces)))
 
         #Write Info
         if len(self.info) > 0:
@@ -526,7 +527,7 @@ class scm_mesh :
         scm.seek(0, 0)
 
         header = struct.pack(headerstruct,
-            marker, version, boneoffset, usedBoneCount, vertoffset,
+            marker, version, boneoffset, self.weightedBoneCount, vertoffset,
             extravertoffset, vertcount, indexoffset, indexcount,
             infooffset, infosize, totalbonecount)
 
@@ -721,6 +722,9 @@ def createBoneList(mesh_objs, arm, supcom_mesh):
     #extend the used bones dictionary to include all parents
     BonesWithVertices = getAllBoneParents(BonesWithVertices)
     
+    #let the mesh know how many bones are weighted, so that it can be written in the header.
+    supcom_mesh.weightedBoneCount = len(BonesWithVertices)
+    
     SortedBones = []
     BoneSortQueue = []
     BonesWithAnimKeys = {}
@@ -749,6 +753,9 @@ def createBoneList(mesh_objs, arm, supcom_mesh):
     #process the root bone, which has no parent
     processSingleBone(supcom_mesh,SortedBones[0],-1,BonesWithAnimKeys)
     #assign indeces to the remaining bones and process them
+    for index in range(0,len(SortedBones)):
+        print(index, SortedBones[index])
+    
     for index in range(1,len(SortedBones)):
         #assign parent index
         bone = SortedBones[index]
@@ -771,6 +778,8 @@ def getAllBoneParents(InitialBones):
         BoneQueue = [] #clear the list
         BoneQueue.extend(ParentBonesList)
         counter +=1 #failsafe for infinite looping
+        if counter >= 100:
+            print('counter has gone over 100, something is rather very wrong!')
         
     return NewBones
     
@@ -921,7 +930,6 @@ def make_scm(arm_obj):
                         for b in range(len(supcom_mesh.bones)):
                             bone = supcom_mesh.bones[b]
                             if bone.name == bonename:
-                                bone.used = True
                                 v_boneIndex[0] = b
                                 break
 
