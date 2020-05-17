@@ -48,12 +48,14 @@
 #               Sharp edges no longer need to be split in order to export them correctly. support for custom vertex normals is not there currently.
 # 0.5.7  2020-05-08 [e]Exotic_Retard
 #               Fixed a pretty important bug where the exporter would put the wrong number of used/weighted bones in the header if the parents of weighted bones were not weighted.
+# 0.5.8  2020-05-17 [e]Exotic_Retard
+#               Added Preliminary support for Ngons.
 #
 #
 # Todo
 #   - GUI improvements
 #   - fix vertex normals not being merged mathematically correctly - when more than 2 vertices share normals but less are not merged into the same one
-#   - Support use of ngons
+#   - rewrite the vertex merging code again so it picks up all the last vertices without looping in a loop. (right now its not quite 100% efficient)
 #   - Support for LOD exporting. Eg. not merging all meshes for an armature into one mech but rather only
 #     sub-meshes and export the top level meshes to different files.
 #   - Validation, ensure that
@@ -67,9 +69,9 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter 0.5.7",
+    "name": "Supcom Exporter 0.5.8",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,7),
+    "version": (0,5,8),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
@@ -99,7 +101,7 @@ from string import *
 from struct import *
 from bpy.props import *
 
-VERSION = '5.7'
+VERSION = '5.8'
 
 ######################################################
 # User defined behaviour, Select as you need
@@ -228,6 +230,7 @@ class scm_vertex :
     uv1 = []
     uv2 = []
     bone_index = []
+    smoothEdgesList = []
 
     def __init__(self, pos , no , uv1, bone_index, smoothEdgesList):
 
@@ -372,7 +375,6 @@ class scm_mesh :
     bones = []
     weightedBoneCount = 0
     vertices = []
-    vertcounter = 0
     faces = []
     info = []
 
@@ -383,12 +385,10 @@ class scm_mesh :
         self.smoothEdgeKeys = {}
         self.faces = []
         self.info = []
-        #self.vertcounter = 0
 
     def addVert( self, nvert ):
         if VERTEX_OPTIMIZE :
             vertind = len(self.vertices)
-            
             for edgekey in nvert.smoothEdges :
                 if edgekey in self.smoothEdgeKeys :
                     for storedVertInd in self.smoothEdgeKeys[edgekey] :
@@ -753,9 +753,6 @@ def createBoneList(mesh_objs, arm, supcom_mesh):
     #process the root bone, which has no parent
     processSingleBone(supcom_mesh,SortedBones[0],-1,BonesWithAnimKeys)
     #assign indeces to the remaining bones and process them
-    for index in range(0,len(SortedBones)):
-        print(index, SortedBones[index])
-    
     for index in range(1,len(SortedBones)):
         #assign parent index
         bone = SortedBones[index]
@@ -831,7 +828,6 @@ def processSingleBone(mesh, bone, parentBoneIndex,BonesWithAnimKeys):
     #row 3, cols 0,1,2 indicate position
     b_position = rel_mat.transposed().to_translation()
     
-            
     sc_bone = scm_bone( bone.name, b_rest_pose_inv, b_rotation, b_position, parentBoneIndex )
     
     if bone.name in BonesWithAnimKeys:
@@ -856,17 +852,9 @@ def make_scm(arm_obj):
 
     bpy.ops.object.select_all(action='DESELECT')
 
-    # Get all mesh objects for the selected armature & calculate progbar length
-    pb_length = 0
     mesh_objs = []
     for obj in scn.objects:
         if obj.parent == arm_obj and obj.type == 'MESH':
-            #calculate progbar length
-            obj.data.calc_loop_triangles()
-            #obj.data.update (calc_tessface=True)
-            
-            bmesh_data = obj.data
-            pb_length += len(bmesh_data.loop_triangles)
             mesh_objs.append(obj)
 
 
@@ -884,29 +872,38 @@ def make_scm(arm_obj):
         nGonFaces = []
         verticesWithoutUV = [] #not yet used
             
-        mesh_obj.data.calc_loop_triangles()
-        mesh_obj.data.calc_normals_split()
         bmesh_data = mesh_obj.data
+        
+        bmesh_data.calc_loop_triangles()#is this needed?
+        bmesh_data.calc_normals_split()
         
         # Build lookup dictionary for edge keys to edges
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
+        
         if not bmesh_data.uv_layers :
             my_popup("Mesh has no texture values -> Please set your UV!")
             print("Mesh has no texture values -> Please set your UV!")
             return
 
         MatrixMesh = Matrix(mesh_obj.matrix_world)
-        mesh_name = mesh_obj.name
         uvData = bmesh_data.uv_layers.active.data[:]
         
         TotalVertsProcessed = 0
         
-        for face in bmesh_data.polygons:
-            #ProgBarFaces.do()
+        for face in bmesh_data.loop_triangles:
+            #get the UV coordinates for this face
+            my_uv = None
+            start = bmesh_data.polygons[face.polygon_index].loop_start
+            end = start + bmesh_data.polygons[face.polygon_index].loop_total
+            
+            #TODO:rename uvDict to dict
+            uvDict = {}
+            for loop in bmesh_data.loops[start:end]:
+                uvDict[loop.vertex_index] = tuple(uvData[loop.index].uv)
 
             vertList = []
-            if len(face.vertices) > 4 :
+            if len(face.vertices) > 4 : #TODO:Remove this
                 nGonFaces.append( face.index )
                 continue
             
@@ -941,15 +938,10 @@ def make_scm(arm_obj):
                 v_pos = Vector( vertex.co @ (MatrixMesh @ xy_to_xz_transform))
 
                 #TODO: make this be the actual vertex normal instead of whatever it wants it to be.
-                #v_nor = vertex.normal @ (MatrixMesh @ xy_to_xz_transform)
                 v_nor = face.normal @ (MatrixMesh @ xy_to_xz_transform) #we use the face normal with the assumption that it is hard, doesnt support custom normals for now
                 #needed cause supcom scans an image in the opposite vertical direction or something?.
                 
-                my_uv = None
-                start = bmesh_data.polygons[face.index].loop_start
-                end = start + bmesh_data.polygons[face.index].loop_total
-                uvtuple = tuple(tuple(uv.uv) for uv in uvData[start:end])
-                my_uv = uvtuple[i]
+                my_uv = uvDict[vert]
                 
                 v_uv1 = Vector((my_uv[0], 1.0 - my_uv[1]))
                 
@@ -957,10 +949,13 @@ def make_scm(arm_obj):
                 v_smoothEdgeList = []
                 
                 for ek in face.edge_keys :
+                    if not ek in face_edge_map:
+                        v_smoothEdgeList.append( ek )
+                        continue
                     edge = face_edge_map[ek]
                     if not edge.use_edge_sharp :
-                        for sharpVert in edge.vertices :
-                            if vertex.index == sharpVert :
+                        for SmoothEdgeEnd in edge.vertices :
+                            if vertex.index == SmoothEdgeEnd :
                                 v_smoothEdgeList.append( ek )
 
                 vertList.append( scm_vertex( v_pos, v_nor, v_uv1, v_boneIndex, v_smoothEdgeList) )
@@ -1037,9 +1032,7 @@ def make_sca(arm_obj, action):
     #get textInfo for present keys in armature
     if action:
         for fc in action.fcurves:
-            print ("data_path",fc.data_path)
             keyParsed = getBoneNameAndAction(fc.data_path)
-            print ("keyParsed",keyParsed)
             if (keyParsed[1] in ["scale","rotation_quaternion","location"]):
                 keyedBones.add(keyParsed[0])
             
