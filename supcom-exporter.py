@@ -143,7 +143,7 @@ MArmatureWorld = Matrix()
 BONES = []
 keyedBones = set()
 
-ANIMATION_DURATION = 1.5
+ANIMATION_DURATION = 1.5 #what is this for
 
 
 
@@ -285,32 +285,8 @@ class scm_vertex :
 
         file.write(vertex)
 
-#helper the real scm face 'tupel is stored in mesh
-#quad face
-class qFace :
 
-        vertex_cont = []
-
-        def __init__(self):
-            self.vertex_cont = []
-
-        def addVertexCount(self, vertex):
-            self.vertex_cont.extend( vertex )
-
-        def addToMesh(self, mesh):
-
-            face1 = Face()
-            face1.addVertexCount([ self.vertex_cont[0], self.vertex_cont[1], self.vertex_cont[2] ])
-            face1.CalcTB()
-
-            face2 = Face()
-            face2.addVertexCount([ self.vertex_cont[2], self.vertex_cont[3], self.vertex_cont[0] ])
-            face2.CalcTB()
-
-            mesh.addQFace(face1, face2)
-
-
-#helper the real scm face 'tupel is stored in mesh
+#helper the real scm face tuple is stored in mesh
 #tri face
 class Face :
 
@@ -323,7 +299,7 @@ class Face :
         self.vertex_cont.extend(vertex)
 
     #now contains 3 vertexes calculate bi and ta and add to mesh
-
+    #TODO:make it calculate these using the blender api instead of manually?
     def CalcTB( self ) :
         vert1 = self.vertex_cont[0]
         vert2 = self.vertex_cont[1]
@@ -350,11 +326,12 @@ class Face :
 
         divide = (UV2UV1[1]*UV3UV1[0] - UV2UV1[0]*UV3UV1[1])
 
+        #TODO: work out why dividing by 0 is happening
         if ( divide != 0.0 ) :
             tangent = Vector((UV3UV1[1]*P2P1 - UV2UV1[1]*P3P1)/(divide))
             binormal = Vector((UV3UV1[0]*P2P1 - UV2UV1[0]*P3P1)/(-divide))
         else :
-            my_popup_warn("Vertex-T-B divided through zero")
+            print("Vertex Tangent & Binormal divided by zero, setting both to (0,0,0) instead")
             tangent = Vector((0,0,0))
             binormal = Vector((0,0,0))
 
@@ -364,7 +341,6 @@ class Face :
             self.vertex_cont[ind].tangent = tangent
             self.vertex_cont[ind].binormal =  binormal
 
-    #todo:delet this
     def addToMesh( self, mesh ) :
         self.CalcTB()
         mesh.addFace( self )
@@ -431,14 +407,6 @@ class scm_mesh :
     def addFace( self, face ):
 
         facein = [ self.addVert(nvert) for nvert in face.vertex_cont]
-        self.faces.append(facein)
-
-    def addQFace( self, face1, face2):
-
-        facein = [ self.addVert(nvert) for nvert in face1.vertex_cont]
-        self.faces.append(facein)
-
-        facein = [ facein[2], self.addVert(face2.vertex_cont[1]), facein[0]]
         self.faces.append(facein)
 
 
@@ -728,6 +696,7 @@ def createBoneList(mesh_objs, arm, supcom_mesh):
     SortedBones = []
     BoneSortQueue = []
     BonesWithAnimKeys = {}
+    #TODO: instead of just counting the root bones, also select them.
     numroots = 0
     global keyedBones
     for bone in arm.bones.values():
@@ -744,9 +713,9 @@ def createBoneList(mesh_objs, arm, supcom_mesh):
     BonesWithAnimKeys = getAllBoneParents(BonesWithAnimKeys)
 
     if numroots > 1:
-        my_popup("Error: there are multiple root bones -> check you bone relations!")
-        print("Error: there are multiple root bones -> check you bone relations!")
-        return
+        my_popup("Error:" + str(numroots) + " root bones found - Should be one, check your armature!")
+        print("Error:", numroots, " root bones found - Should be one, check your armature!")
+        return True
     
     SortedBones = sortBonesList(BoneSortQueue, BonesWithVertices)
     
@@ -863,7 +832,8 @@ def make_scm(arm_obj):
     # Create SCM Mesh
     supcom_mesh = scm_mesh()
     
-    createBoneList(mesh_objs, arm, supcom_mesh)
+    error = createBoneList(mesh_objs, arm, supcom_mesh)
+    if error: return
 
     # Process all the meshes
     for mesh_obj in mesh_objs:
@@ -903,9 +873,6 @@ def make_scm(arm_obj):
                 uvDict[loop.vertex_index] = tuple(uvData[loop.index].uv)
 
             vertList = []
-            if len(face.vertices) > 4 : #TODO:Remove this
-                nGonFaces.append( face.index )
-                continue
             
             for i in range(len(face.vertices)):
                 TotalVertsProcessed += 1
@@ -931,9 +898,9 @@ def make_scm(arm_obj):
                                 break
 
                 if (v_boneIndex[0] == -1):
-                    verticesWithoutBones.append( vert )
+                    verticesWithoutBones.append( vertex.index )
                     v_boneIndex[0] = 0
-                    print("bone with no index detected: ",vert)
+                    print("vertex with no bone influence detected: ",vert)
                 
                 v_pos = Vector( vertex.co @ (MatrixMesh @ xy_to_xz_transform))
 
@@ -960,10 +927,7 @@ def make_scm(arm_obj):
 
                 vertList.append( scm_vertex( v_pos, v_nor, v_uv1, v_boneIndex, v_smoothEdgeList) )
 
-            if len(vertList) > 3:
-                newFace = qFace()
-            else:
-                newFace = Face()
+            newFace = Face()
 
             newFace.addVertexCount(vertList)
             newFace.addToMesh(supcom_mesh)
@@ -978,13 +942,6 @@ def make_scm(arm_obj):
             selectVerticesForError(verticesWithoutBones, "vertices", mesh_obj)
             my_popup("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
             print("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
-            return
-            
-        #error handling
-        if len(nGonFaces) > 0:
-            selectVerticesForError(nGonFaces, "polygons", mesh_obj)
-            my_popup("Error: %s Faces are Ngons in Mesh. They are now selected. (Ngons are faces with 5 or more edges) " % (len(nGonFaces)) )
-            print("Error: %s Faces are Ngons in Mesh. They are now selected. (Ngons are faces with 5 or more edges) " % (len(nGonFaces)) )
             return
 
     return supcom_mesh
@@ -1004,9 +961,7 @@ def selectVerticesForError(ObjectList, ObjectType, mesh_obj):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     for vertID in ObjectList :
-        #mesh_obj.data.vertices[vertID].select = True
-        mesh_obj.data["polygons"][vertID].select = True
-        #mesh_obj.data[ObjectType][vertID].select = True
+        mesh_obj.data.vertices[vertID].select = True
 
     bpy.context.view_layer.update() #update the view so the selected stuff is there.
             
@@ -1054,7 +1009,8 @@ def make_sca(arm_obj, action):
         for obj in layer.objects:
             if obj.parent == arm_obj and obj.type == 'MESH':
                 mesh_objs.append(obj)
-        createBoneList(mesh_objs, arm_obj.data, supcom_mesh)
+        error = createBoneList(mesh_objs, arm, supcom_mesh)
+        if error: return
 
         
     BONES2 = [b for b in BONES if b.keyed]
