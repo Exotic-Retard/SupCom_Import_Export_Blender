@@ -11,6 +11,7 @@
 #   0.5.0   2019-08-29 - Adapted to Blender 2.80
 #   0.5.1   2019-10-13 - Added support for importing files with more vertices
 #   0.5.2   2020-04-26 - Fixed the bone replacement dialogue not working for animations, and cleaned up a bit
+#   0.5.3   2020-05-29 - Added Vague support for SCM v7 which is supcom 2 format.
 #
 # Todo
 #   - Material/uv map 2
@@ -22,9 +23,9 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Importer 0.5.2",
+    "name": "Supcom Importer 0.5.3",
     "author": "dan & Brent & Oygron",
-    "version": (0,5,2),
+    "version": (0,5,3),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Imports Supcom files",
@@ -64,7 +65,7 @@ from bpy.props import *
 
 from time import sleep
 
-VERSION = '4.0'
+VERSION = '5.3'
 
 sca_filepath = [ "", "", "None"]
 scm_filepath = [ "", "", "None"]
@@ -352,6 +353,7 @@ class scm_mesh :
         infooffset = header[9]
         infocount = header[10]
         totalbonecount = header[11]
+        #note: this is for SCM version 5. For SCM Version 7 (supcom 2) there are additional things in the header that arent decoded here, for instance material information.
 
         if (marker != 'MODL'):
             print( 'Not a valid scm')
@@ -359,9 +361,7 @@ class scm_mesh :
             return
 
         if (version != 5):
-            print( 'Unsupported version (%d)' % version)
-            my_popup('Unsupported version (%d)' % version)
-            return
+            print('Unsupported SCM Version detected, attempting to import it regardless. SCM Version:',version)
 
         # Read bone names
         scm.seek(pad(scm.tell()), 1)
@@ -434,13 +434,13 @@ class scm_mesh :
 
 
         # Read info
+        
         if (infocount > 0):
             scm.seek(infooffset)
-            buffer = scm.read()
+            buffer = scm.read(infocount)
             rawinfo = struct.unpack(str(len(buffer))+'s',buffer)
             b_info = rawinfo[0].split(b'\0')[:-1]
-            self.info = [b.decode() for b in b_info]
-            print("self.info",self.info)
+            self.info = [b.decode("utf-8", "ignore") for b in b_info]
 
         scm.close()
 
