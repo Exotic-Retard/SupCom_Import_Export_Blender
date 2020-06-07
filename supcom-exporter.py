@@ -50,6 +50,8 @@
 #               Fixed a pretty important bug where the exporter would put the wrong number of used/weighted bones in the header if the parents of weighted bones were not weighted.
 # 0.5.8  2020-05-17 [e]Exotic_Retard
 #               Added Preliminary support for Ngons.
+# 0.5.9  2020-06-07 [e]Exotic_Retard
+#               Fixed SCA export being broken (amazing it lasted this long!)
 #
 #
 # Todo
@@ -71,7 +73,7 @@
 bl_info = {
     "name": "Supcom Exporter 0.5.8",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
-    "version": (0,5,8),
+    "version": (0,5,9),
     "blender": (2, 80, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
@@ -101,7 +103,7 @@ from string import *
 from struct import *
 from bpy.props import *
 
-VERSION = '5.8'
+VERSION = '5.9'
 
 ######################################################
 # User defined behaviour, Select as you need
@@ -1009,7 +1011,7 @@ def make_sca(arm_obj, action):
         for obj in layer.objects:
             if obj.parent == arm_obj and obj.type == 'MESH':
                 mesh_objs.append(obj)
-        error = createBoneList(mesh_objs, arm, supcom_mesh)
+        error = createBoneList(mesh_objs, arm_obj.data, supcom_mesh)
         if error: return
 
         
