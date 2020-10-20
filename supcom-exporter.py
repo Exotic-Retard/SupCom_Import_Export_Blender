@@ -78,9 +78,7 @@ bl_info = {
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
     "warning": "",
-    "wiki_url": "http://forums.gaspowered.com/"
-                "viewtopic.php?t=17286",
-                #https://github.com/Exotic-Retard/SupCom_Import_Export_Blender
+    "wiki_url": "https://github.com/Exotic-Retard/SupCom_Import_Export_Blender",
     "category": "Import-Export",
 }
 
