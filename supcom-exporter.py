@@ -71,7 +71,7 @@
 #**************************************************************************************************
 
 bl_info = {
-    "name": "Supcom Exporter 0.5.8",
+    "name": "Supcom Exporter 0.5.9",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
     "version": (0,5,9),
     "blender": (2, 80, 0),
