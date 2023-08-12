@@ -904,8 +904,8 @@ def make_scm(arm_obj):
                 
                 v_pos = Vector( vertex.co @ (MatrixMesh @ xy_to_xz_transform))
 
-                #TODO: make this be the actual vertex normal instead of whatever it wants it to be.
-                v_nor = face.normal @ (MatrixMesh @ xy_to_xz_transform) #we use the face normal with the assumption that it is hard, doesnt support custom normals for now
+                #TODO: This only works I believe when vertices are merged, aka when a vertex becomes a part of multiple faces.
+                v_nor = vertex.normal @ (MatrixMesh @ xy_to_xz_transform) #we use the face normal with the assumption that it is hard, doesnt support custom normals for now
                 #needed cause supcom scans an image in the opposite vertical direction or something?.
                 
                 my_uv = uvDict[vert]
