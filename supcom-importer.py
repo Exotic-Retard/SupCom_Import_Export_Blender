@@ -1009,7 +1009,7 @@ def check_bone(meshBones,anim,objBoneNames,bone_num):
         #print("check_bone",anim.bonenames[bone_num])
         if anim.bonenames[bone_num] not in objBoneNames:
             print (anim.bonenames[bone_num],"not found")
-            
+            '''
             bpy.utils.unregister_class(OBJECT_OT_anim_replace_bone)
             
             OBJECT_OT_anim_replace_bone.bl_label = anim.bonenames[bone_num]+" not found, select substitute"
@@ -1026,10 +1026,8 @@ def check_bone(meshBones,anim,objBoneNames,bone_num):
             bpy.utils.register_class(OBJECT_OT_anim_replace_bone)
             
             bpy.ops.object.anim_replace_bone('INVOKE_DEFAULT')
-            
-            return
-        else:
-            return check_bone(meshBones,anim,objBoneNames,bone_num+1)
+            '''
+        return check_bone(meshBones,anim,objBoneNames,bone_num+1)
     else:
         return read_end_anim(meshBones,anim)
 
@@ -1072,6 +1070,10 @@ def read_end_anim(meshBones,anim):
                 if (frame_index == 0):
                     print("bone",anim.bonenames[b])
                 
+                try:
+                    pose.bones[anim.bonenames[b]]
+                except KeyError:#This lets us skip over any bones that haven't been found.
+                    continue
                 pose_bone = pose.bones[anim.bonenames[b]]
 
                 # this changes the relative orientation (supcom) to absolute orientation (blender)
