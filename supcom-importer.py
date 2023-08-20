@@ -123,13 +123,16 @@ def uvtex_items(self, context):
     return optionsList
 #    return [(t.name, t.name, t.name) for t in context.object.data.uv_textures]
 
+def update_enum_options(self, context):
+    return global_bone_replacement_options_list
+
 class OBJECT_OT_anim_replace_bone(bpy.types.Operator):
     """Tooltip description"""
     bl_idname = "object.anim_replace_bone"
     bl_label = "Animation Replacement"
     #bl_options = {'REGISTER', 'UNDO'}
     
-    optsList : bpy.props.EnumProperty(items=[])
+    optsList : bpy.props.EnumProperty(name="Select Option", items=update_enum_options)
     
     meshBones = None
     anim = None
@@ -139,30 +142,22 @@ class OBJECT_OT_anim_replace_bone(bpy.types.Operator):
     
     @classmethod
     def poll(cls, context):
-        print("poll")
         return True
     
     def invoke(self, context, event):
-        print("invoke")
         return context.window_manager.invoke_props_dialog(self)
     
     def draw(self, context):
-        print("draw")
         layout = self.layout
+        
         col = layout.column()
         col.prop(self, "optsList", expand=True)
     
     def execute(self, context):
-        print("execute")
-        print("choice",self.optsList)
-        
+        print("Replacement option selected:",self.optsList)
         self.anim.bonenames[self.bone_num] = self.optsList
-        
         check_bone(self.meshBones,self.anim,self.objBoneNames,self.bone_num + 1)
-        
         return {'FINISHED'}
-
-
 
 class scm_bone :
 
@@ -640,7 +635,6 @@ class sca_anim :
          linksoffset,       \
          animoffset,        \
          framesize) = struct.unpack(headerstruct, buffer)
-
         if (magic != b'ANIM'):
             print( 'Not a valid .sca animation file')
             my_popup('Not a valid .sca animation file')
@@ -648,8 +642,6 @@ class sca_anim :
 
         if (version != 5):
             print( 'Unsupported sca version: %d'  % version)
-            my_popup( 'Unsupported sca version: %d'  % version)
-            return
 
         # Read bone names
         sca.seek(namesoffset, 0)
@@ -717,7 +709,6 @@ def read_scm() :
 
     print( "=== LOADING Sup Com Model ===")
     print( "")
-
     scene = bpy.context.scene
     layer = bpy.context.view_layer
     mesh = scm_mesh()
@@ -1003,7 +994,7 @@ def read_anim(mesh):
     objBoneNames = [rBone.name for rBone in meshBones]
     return check_bone(meshBones,anim,objBoneNames,0)
     
-#this is a mess, should be cleaned up. it unregisters an operator for each bone.
+#this is a mess, should be cleaned up. it creates a dialog option for bones which arent in the mesh.
 def check_bone(meshBones,anim,objBoneNames,bone_num):
     if (bone_num < len(anim.bonenames)):
         #print("check_bone",anim.bonenames[bone_num])
@@ -1021,7 +1012,8 @@ def check_bone(meshBones,anim,objBoneNames,bone_num):
             
             itemList = [(b,b,b) for b in objBoneNames]
             itemList += [("_importer_Discard_","Discard","Discard")]
-            OBJECT_OT_anim_replace_bone.optsList = bpy.props.EnumProperty(items=itemList)
+            global global_bone_replacement_options_list
+            global_bone_replacement_options_list = itemList #save the global item list, which will then be used by the operator to read the list of bones
                 
             bpy.utils.register_class(OBJECT_OT_anim_replace_bone)
             
