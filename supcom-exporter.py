@@ -1101,7 +1101,7 @@ def export_scm(outdir):
     loc_filename = arm_obj.name + '.scm'
     my_popup_info("Object saved to " + loc_filename)
 
-def find_armature():
+def find_armature() -> bpy.types.Armature:
     scene = bpy.context.scene #TODO:prioritise visible objects over this
 
     # Get Selected object(s)
@@ -1145,15 +1145,22 @@ def export_sca(outdir):
 
     # SCA
     # This plays through every action in the NLA tracks linked to our armature and records the relevant bone positions every frame, then saves that to sca
+    nla_strips = list()
     for track in arm_obj.animation_data.nla_tracks:
-        for NlaStrip in track.strips:
-            #set active action
-            arm_obj.animation_data.action = NlaStrip.action
-            
-            animation = make_sca(arm_obj, NlaStrip.action)
-            animation.save(outdir + NlaStrip.action.name + ".sca")
-            
-            my_popup_info("Action saved to " + NlaStrip.action.name)
+        nla_strips.extend(track.strips)
+    
+    if len(nla_strips) == 0:
+        my_popup("No animation strips were found to export. You may need to go to the Nonlinear Animation Editor and hit Push Down Action on your Action.")
+        return
+
+    for nla_strip in nla_strips:
+        #set active action
+        arm_obj.animation_data.action = nla_strip.action
+        
+        animation = make_sca(arm_obj, nla_strip.action)
+        animation.save(outdir + nla_strip.action.name + ".sca")
+        
+        my_popup_info("Action saved to " + nla_strip.action.name)
 
 
 
