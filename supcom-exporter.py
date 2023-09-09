@@ -84,16 +84,11 @@ bl_info = {
 
 import bpy
 
-from bgl import *
-
 from mathutils import *
 
-import os
 from os import path
 
 import struct
-import string
-import math
 from math import *
 from bpy_extras.io_utils import unpack_list, unpack_face_list
 
@@ -1197,7 +1192,6 @@ class EXPORT_OT_scm(bpy.types.Operator):
     def execute(self, context):
         global inError
         inError = 0
-        scene = bpy.context.scene
 
         export_scm(self.directory)
 
@@ -1239,7 +1233,6 @@ class EXPORT_OT_sca(bpy.types.Operator):
     def execute(self, context):
         global inError
         inError = 0
-        scene = bpy.context.scene
         export_sca(self.directory)
 
         return {'FINISHED'}
