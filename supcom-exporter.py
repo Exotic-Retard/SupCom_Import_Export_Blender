@@ -74,7 +74,7 @@ bl_info = {
     "name": "Supcom Exporter 0.5.9",
     "author": "dan & Brent & Oygron, Updated by [e]Exotic_Retard",
     "version": (0,5,9),
-    "blender": (2, 80, 0),
+    "blender": (4, 2, 0),
     "location": "File > Import-Export",
     "description": "Exports Supcom files",
     "warning": "",
@@ -813,16 +813,12 @@ def make_scm(arm_obj):
     scn = bpy.context.scene
     layer = bpy.context.view_layer
 
-
     bpy.ops.object.select_all(action='DESELECT')
 
     mesh_objs = []
     for obj in scn.objects:
         if obj.parent == arm_obj and obj.type == 'MESH':
             mesh_objs.append(obj)
-
-
-    #ProgBarFaces = ProgressBar( "Exp: Verts", pb_length )
 
     # Create SCM Mesh
     supcom_mesh = scm_mesh()
@@ -836,17 +832,14 @@ def make_scm(arm_obj):
         verticesWithoutBones = []
         nGonFaces = []
         verticesWithoutUV = [] #not yet used
-            
+
         bmesh_data = mesh_obj.data
-        
-        bmesh_data.calc_loop_triangles()#is this needed?
-        bmesh_data.calc_normals_split()
-        
+
         # Build lookup dictionary for edge keys to edges
         edges = bmesh_data.edges
         face_edge_map = {ek: edges[i] for i, ek in enumerate(bmesh_data.edge_keys)}
         
-        if not bmesh_data.uv_layers :
+        if not bmesh_data.uv_layers:
             my_popup("Mesh has no texture values -> Please set your UV!")
             print("Mesh has no texture values -> Please set your UV!")
             return
@@ -874,11 +867,10 @@ def make_scm(arm_obj):
                 vert = face.vertices[i]
                 vertex = bmesh_data.vertices[vert]
 
-                v_nor = Vector(( 0, 0, 0 ))
-                v_pos = Vector(( 0, 0, 0 ))
-                v_uv1 = Vector(( 0, 0)) #SC allows 2 uv's
-                v_boneIndex = [0]*4 #  SC supports up to 4 bones we will use only one
-                #v_boneIndex = [-1,0,0,0]
+                v_nor = Vector((0, 0, 0))
+                v_pos = Vector((0, 0, 0))
+                v_uv1 = Vector((0, 0)) #SC allows 2 uv's
+                v_boneIndex = [0] * 4 #SC supports up to 4 bones we will use only one
 
                 #Find controling bone
                 v_boneIndex[0] = -1
@@ -893,50 +885,45 @@ def make_scm(arm_obj):
                                 break
 
                 if (v_boneIndex[0] == -1):
-                    verticesWithoutBones.append( vertex.index )
+                    verticesWithoutBones.append(vertex.index)
                     v_boneIndex[0] = 0
-                    print("vertex with no bone influence detected: ",vert)
                 
-                v_pos = Vector( vertex.co @ (MatrixMesh @ xy_to_xz_transform))
-
+                v_pos = Vector(vertex.co @ (MatrixMesh @ xy_to_xz_transform))
                 #TODO: make this be the actual vertex normal instead of whatever it wants it to be.
                 v_nor = face.normal @ (MatrixMesh @ xy_to_xz_transform) #we use the face normal with the assumption that it is hard, doesnt support custom normals for now
-                #needed cause supcom scans an image in the opposite vertical direction or something?.
-                
+                #needed cause supcom scans an image in the opposite vertical direction or something?
+
                 my_uv = uvDict[vert]
-                
                 v_uv1 = Vector((my_uv[0], 1.0 - my_uv[1]))
                 
                 #find if the vertex is sharp or not so it can be excluded from merging later
                 v_smoothEdgeList = []
                 
-                for ek in face.edge_keys :
+                for ek in face.edge_keys:
                     if not ek in face_edge_map:
-                        v_smoothEdgeList.append( ek )
+                        v_smoothEdgeList.append(ek)
                         continue
                     edge = face_edge_map[ek]
-                    if not edge.use_edge_sharp :
-                        for SmoothEdgeEnd in edge.vertices :
-                            if vertex.index == SmoothEdgeEnd :
-                                v_smoothEdgeList.append( ek )
+                    if not edge.use_edge_sharp:
+                        for SmoothEdgeEnd in edge.vertices:
+                            if vertex.index == SmoothEdgeEnd:
+                                v_smoothEdgeList.append(ek)
 
-                vertList.append( scm_vertex( v_pos, v_nor, v_uv1, v_boneIndex, v_smoothEdgeList) )
+                vertList.append(scm_vertex(v_pos, v_nor, v_uv1, v_boneIndex, v_smoothEdgeList))
 
             newFace = Face()
-
             newFace.addVertexCount(vertList)
             newFace.addToMesh(supcom_mesh)
-        
+
         print('total vertices processed: ', TotalVertsProcessed)
         bpy.ops.object.mode_set(mode='OBJECT')
         bpy.ops.object.select_all(action='DESELECT')
         
-        
         #error handling
         if len(verticesWithoutBones) > 0:
             selectVerticesForError(verticesWithoutBones, "vertices", mesh_obj)
-            my_popup("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
-            print("Error: %s Vertices without Bone Influence in Mesh. (Selected) " % (len(verticesWithoutBones)) )
+            my_popup(f"Error: {len(verticesWithoutBones)} Vertices without Bone Influence in Mesh. (Selected)")
+            print(f"Error: {len(verticesWithoutBones)} Vertices without Bone Influence in Mesh. (Selected)")
             return
 
     return supcom_mesh
